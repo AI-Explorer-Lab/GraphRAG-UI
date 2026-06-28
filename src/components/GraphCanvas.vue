@@ -1,0 +1,498 @@
+﻿<script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import type { SubgraphEdge, SubgraphNode } from "../types/api";
+
+type Point = { x: number; y: number };
+type DragState =
+  | { type: "node"; id: string }
+  | { type: "pan"; startX: number; startY: number; originX: number; originY: number }
+  | null;
+
+const VIEWBOX_WIDTH = 1280;
+const VIEWBOX_HEIGHT = 760;
+const CENTER = { x: VIEWBOX_WIDTH / 2, y: VIEWBOX_HEIGHT / 2 };
+const HOP_RINGS: Record<number, { rx: number; ry: number; label: string; labelX: number; labelY: number }> = {
+  1: { rx: 210, ry: 136, label: "1-hop", labelX: CENTER.x + 156, labelY: CENTER.y - 118 },
+  2: { rx: 390, ry: 252, label: "2-hop", labelX: CENTER.x + 330, labelY: CENTER.y - 232 },
+  3: { rx: 548, ry: 334, label: "3-hop", labelX: CENTER.x + 486, labelY: CENTER.y - 310 }
+};
+
+const props = defineProps<{
+  nodes: SubgraphNode[];
+  edges: SubgraphEdge[];
+  hiddenRelations: string[];
+  hiddenLabels?: string[];
+  centerId?: string;
+  selectedId?: string;
+  selectedEdge?: SubgraphEdge | null;
+}>();
+
+const emit = defineEmits<{
+  selectNode: [node: SubgraphNode];
+  selectEdge: [edge: SubgraphEdge];
+}>();
+
+const svgRef = ref<SVGSVGElement | null>(null);
+const positions = ref<Record<string, Point>>({});
+const dragState = ref<DragState>(null);
+const viewport = ref({ x: 0, y: 0, scale: 1 });
+
+const hiddenLabelSet = computed(() => new Set(props.hiddenLabels ?? []));
+const drawableNodes = computed(() => props.nodes.filter((node) => !hiddenLabelSet.value.has(node.label)));
+const drawableNodeIds = computed(() => new Set(drawableNodes.value.map((node) => node.id)));
+
+const visibleEdges = computed(() =>
+  props.edges.filter(
+    (edge) =>
+      !props.hiddenRelations.includes(edge.relation) &&
+      drawableNodeIds.value.has(edge.source) &&
+      drawableNodeIds.value.has(edge.target)
+  )
+);
+
+const visibleNodeIds = computed(() => {
+  const ids = new Set<string>();
+  visibleEdges.value.forEach((edge) => {
+    ids.add(edge.source);
+    ids.add(edge.target);
+  });
+  if (props.centerId && drawableNodeIds.value.has(props.centerId)) ids.add(props.centerId);
+  return ids;
+});
+
+const visibleNodes = computed(() => {
+  if (!props.edges.length) return drawableNodes.value;
+  return drawableNodes.value.filter((node) => visibleNodeIds.value.has(node.id));
+});
+
+const nodeById = computed(() => new Map(props.nodes.map((node) => [node.id, node])));
+
+const degreeByNode = computed(() => {
+  const degrees = new Map<string, number>();
+  visibleEdges.value.forEach((edge) => {
+    degrees.set(edge.source, (degrees.get(edge.source) ?? 0) + 1);
+    degrees.set(edge.target, (degrees.get(edge.target) ?? 0) + 1);
+  });
+  return degrees;
+});
+
+const depthByNode = computed(() => computeDepths(visibleNodes.value, visibleEdges.value));
+const maxVisibleDepth = computed(() =>
+  Math.max(0, ...visibleNodes.value.map((node) => Math.min(depthByNode.value.get(node.id) ?? 3, 3)))
+);
+
+const neighborIds = computed(() => {
+  const ids = new Set<string>();
+  if (props.selectedId) {
+    ids.add(props.selectedId);
+    visibleEdges.value.forEach((edge) => {
+      if (edge.source === props.selectedId) ids.add(edge.target);
+      if (edge.target === props.selectedId) ids.add(edge.source);
+    });
+  }
+  if (props.selectedEdge) {
+    ids.add(props.selectedEdge.source);
+    ids.add(props.selectedEdge.target);
+  }
+  return ids;
+});
+
+const layoutSignature = computed(() =>
+  [
+    props.centerId ?? "",
+    visibleNodes.value.map((node) => node.id).sort().join("|"),
+    visibleEdges.value.map((edge) => `${edge.source}:${edge.relation}:${edge.target}`).sort().join("|")
+  ].join("::")
+);
+
+watch(
+  layoutSignature,
+  () => {
+    positions.value = computeHopRingLayout(visibleNodes.value, visibleEdges.value);
+    viewport.value = { x: 0, y: 0, scale: 1 };
+  },
+  { immediate: true }
+);
+
+function computeHopRingLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+  if (!nodes.length) return {};
+  return seedPositions(nodes, edges);
+}
+
+function seedPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+  const depths = computeDepths(nodes, edges);
+  const groups = new Map<number, SubgraphNode[]>();
+  nodes.forEach((node) => {
+    const depth = Math.min(depths.get(node.id) ?? 3, 3);
+    groups.set(depth, [...(groups.get(depth) ?? []), node]);
+  });
+
+  const map: Record<string, Point> = {};
+  const offsets: Record<number, number> = {
+    0: -Math.PI / 2,
+    1: -Math.PI / 2,
+    2: -Math.PI / 2 + 0.34,
+    3: -Math.PI / 2 - 0.18
+  };
+
+  Array.from(groups.entries()).forEach(([depth, group]) => {
+    const ring = HOP_RINGS[depth] ?? HOP_RINGS[3];
+    const sorted = group
+      .slice()
+      .sort((a, b) => (degreeByNode.value.get(b.id) ?? 0) - (degreeByNode.value.get(a.id) ?? 0) || a.id.localeCompare(b.id));
+
+    sorted.forEach((node, index) => {
+      if (depth === 0) {
+        map[node.id] = { ...CENTER };
+        return;
+      }
+      const angle = (offsets[depth] ?? offsets[3]) + (Math.PI * 2 * index) / Math.max(sorted.length, 1);
+      const jitter = ((hashString(node.id) % 25) - 12) * 2.2;
+      map[node.id] = {
+        x: CENTER.x + Math.cos(angle) * (ring.rx + jitter),
+        y: CENTER.y + Math.sin(angle) * (ring.ry + jitter * 0.45)
+      };
+    });
+  });
+
+  return map;
+}
+
+function computeDepths(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+  const map = new Map<string, number>();
+  const idSet = new Set(nodes.map((node) => node.id));
+  const adjacency = new Map<string, string[]>();
+
+  edges.forEach((edge) => {
+    if (!idSet.has(edge.source) || !idSet.has(edge.target)) return;
+    adjacency.set(edge.source, [...(adjacency.get(edge.source) ?? []), edge.target]);
+    adjacency.set(edge.target, [...(adjacency.get(edge.target) ?? []), edge.source]);
+  });
+
+  const start = props.centerId && idSet.has(props.centerId) ? props.centerId : nodes[0]?.id;
+  if (!start) return map;
+
+  const queue = [start];
+  map.set(start, 0);
+  while (queue.length) {
+    const current = queue.shift() as string;
+    const nextDepth = (map.get(current) ?? 0) + 1;
+    for (const next of adjacency.get(current) ?? []) {
+      if (map.has(next)) continue;
+      map.set(next, nextDepth);
+      queue.push(next);
+    }
+  }
+  return map;
+}
+
+function point(id: string) {
+  return positions.value[id] ?? CENTER;
+}
+
+function graphTransform() {
+  return `translate(${viewport.value.x} ${viewport.value.y}) scale(${viewport.value.scale})`;
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+function colorFor(node: SubgraphNode) {
+  if (node.label === "community") return "var(--moss)";
+  if (node.label === "keyword") return "var(--amber)";
+  if (node.label === "attribute") return "var(--rust)";
+  return "var(--cyan)";
+}
+
+function edgeColor(edge: SubgraphEdge) {
+  const colors: Record<string, string> = {
+    owns: "oklch(0.72 0.11 210)",
+    uses: "oklch(0.72 0.10 188)",
+    transfers_to: "oklch(0.66 0.16 34)",
+    provides_to: "oklch(0.68 0.10 145)",
+    scores: "oklch(0.77 0.14 78)",
+    triggers: "oklch(0.68 0.15 20)"
+  };
+  return colors[edge.relation] ?? "oklch(0.62 0.03 86 / 0.58)";
+}
+
+function radiusFor(node: SubgraphNode) {
+  if (props.centerId === node.id) return 20;
+  if (node.label === "community") return 17;
+  if (node.label === "keyword") return 10;
+  if (node.label === "attribute") return 7;
+  const degree = degreeByNode.value.get(node.id) ?? 0;
+  return Math.min(18, 10 + degree * 1.05);
+}
+
+function nodeDisplayName(node: SubgraphNode) {
+  if (node.label === "attribute") {
+    const value = stripPropertyPrefix(node.properties?.attr_value ?? node.properties?.value ?? node.properties?.name, node.properties?.attr_key);
+    if (value) return value;
+  }
+  const name = stripPropertyPrefix(node.properties?.name, node.properties?.attr_key);
+  return name || node.display_id || stripInternalId(node.id);
+}
+
+function stripInternalId(value: string) {
+  if (value.startsWith("attr::")) {
+    const parts = value.split("::");
+    return parts[2] || value.replace(/^attr::/, "");
+  }
+  return value;
+}
+
+function stripPropertyPrefix(value: unknown, key?: unknown) {
+  if (value === null || value === undefined) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (text.startsWith("attr::")) return stripInternalId(text);
+  const keyText = typeof key === "string" ? key.trim() : "";
+  if (keyText && text.startsWith(`${keyText}:`)) return text.slice(keyText.length + 1).trim();
+  return text.replace(/^(description|risk_level|schema_type|type|domain|owner|region|entity_class):\s*/i, "").trim();
+}
+
+function shortLabel(value: string) {
+  if (value.length <= 18) return value;
+  return `${value.slice(0, 16)}...`;
+}
+
+function shouldShowLabel(node: SubgraphNode) {
+  if (node.id === props.centerId || node.id === props.selectedId) return true;
+  if (props.selectedEdge && (props.selectedEdge.source === node.id || props.selectedEdge.target === node.id)) return true;
+  if (node.label === "community") return true;
+  if (visibleNodes.value.length <= 28 && node.label !== "attribute") return true;
+  return (degreeByNode.value.get(node.id) ?? 0) >= 5 && node.label !== "attribute";
+}
+
+function edgePath(edge: SubgraphEdge, index: number) {
+  const from = point(edge.source);
+  const to = point(edge.target);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+  const bend = ((hashString(`${edge.source}:${edge.target}:${edge.relation}:${index}`) % 7) - 3) * 7;
+  const midX = (from.x + to.x) / 2 - (dy / distance) * bend;
+  const midY = (from.y + to.y) / 2 + (dx / distance) * bend;
+  return `M ${from.x} ${from.y} Q ${midX} ${midY} ${to.x} ${to.y}`;
+}
+
+function edgeMidpoint(edge: SubgraphEdge) {
+  const from = point(edge.source);
+  const to = point(edge.target);
+  return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+}
+
+function isNodeDimmed(node: SubgraphNode) {
+  return neighborIds.value.size > 0 && !neighborIds.value.has(node.id);
+}
+
+function isEdgeDimmed(edge: SubgraphEdge) {
+  if (props.selectedEdge) return props.selectedEdge !== edge;
+  if (!props.selectedId) return false;
+  return edge.source !== props.selectedId && edge.target !== props.selectedId;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function screenToWorld(event: PointerEvent | WheelEvent) {
+  const svg = svgRef.value;
+  if (!svg) return { ...CENTER };
+  const rect = svg.getBoundingClientRect();
+  const svgX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+  const svgY = ((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT;
+  return {
+    x: (svgX - viewport.value.x) / viewport.value.scale,
+    y: (svgY - viewport.value.y) / viewport.value.scale
+  };
+}
+
+function beginNodeDrag(event: PointerEvent, node: SubgraphNode) {
+  event.stopPropagation();
+  (event.currentTarget as SVGGElement).setPointerCapture(event.pointerId);
+  dragState.value = { type: "node", id: node.id };
+  emit("selectNode", node);
+}
+
+function beginPan(event: PointerEvent) {
+  if (event.button !== 0) return;
+  dragState.value = {
+    type: "pan",
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: viewport.value.x,
+    originY: viewport.value.y
+  };
+}
+
+function onPointerMove(event: PointerEvent) {
+  const drag = dragState.value;
+  if (!drag) return;
+  if (drag.type === "node") {
+    const world = screenToWorld(event);
+    positions.value = {
+      ...positions.value,
+      [drag.id]: {
+        x: clamp(world.x, 45, VIEWBOX_WIDTH - 45),
+        y: clamp(world.y, 45, VIEWBOX_HEIGHT - 45)
+      }
+    };
+    return;
+  }
+  viewport.value = {
+    ...viewport.value,
+    x: drag.originX + event.clientX - drag.startX,
+    y: drag.originY + event.clientY - drag.startY
+  };
+}
+
+function endDrag() {
+  dragState.value = null;
+}
+
+function onWheel(event: WheelEvent) {
+  const before = screenToWorld(event);
+  const factor = event.deltaY < 0 ? 1.12 : 0.88;
+  const nextScale = clamp(viewport.value.scale * factor, 0.48, 2.6);
+  const svg = svgRef.value;
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  const svgX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+  const svgY = ((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT;
+  viewport.value = {
+    scale: nextScale,
+    x: svgX - before.x * nextScale,
+    y: svgY - before.y * nextScale
+  };
+}
+
+function zoomBy(factor: number) {
+  const nextScale = clamp(viewport.value.scale * factor, 0.48, 2.6);
+  viewport.value = {
+    scale: nextScale,
+    x: CENTER.x - (CENTER.x - viewport.value.x) * (nextScale / viewport.value.scale),
+    y: CENTER.y - (CENTER.y - viewport.value.y) * (nextScale / viewport.value.scale)
+  };
+}
+
+function resetViewport() {
+  viewport.value = { x: 0, y: 0, scale: 1 };
+}
+
+function resetLayout() {
+  positions.value = computeHopRingLayout(visibleNodes.value, visibleEdges.value);
+  resetViewport();
+}
+</script>
+
+<template>
+  <div class="graph-canvas" :class="{ panning: dragState?.type === 'pan' }">
+    <div class="graph-control-strip">
+      <div class="graph-control-copy">
+        <strong>Explore</strong>
+        <span>{{ visibleNodes.length }} nodes / {{ visibleEdges.length }} edges</span>
+      </div>
+      <div class="graph-control-actions">
+        <button type="button" title="Zoom out" @click="zoomBy(0.86)">-</button>
+        <span>{{ Math.round(viewport.scale * 100) }}%</span>
+        <button type="button" title="Zoom in" @click="zoomBy(1.16)">+</button>
+        <button type="button" title="Reset viewport" @click="resetViewport">Fit</button>
+        <button type="button" title="Re-run layout" @click="resetLayout">Layout</button>
+      </div>
+    </div>
+
+    <div v-if="!nodes.length" class="graph-empty">
+      <strong>等待子图加载</strong>
+      <span>选择 graph 后可直接加载，填写 node_id 时会按 hops 展开邻域</span>
+    </div>
+    <div v-else-if="!visibleNodes.length" class="graph-empty">
+      <strong>当前筛选条件下没有可见节点</strong>
+      <span>恢复部分关系或切换图层后再查看</span>
+    </div>
+    <svg
+      v-else
+      ref="svgRef"
+      :viewBox="`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`"
+      role="img"
+      aria-label="Interactive subgraph canvas"
+      @pointerdown="beginPan"
+      @pointermove="onPointerMove"
+      @pointerup="endDrag"
+      @pointerleave="endDrag"
+      @wheel.prevent="onWheel"
+      @dblclick="resetViewport"
+    >
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L9,3 z" fill="oklch(0.62 0.03 86 / 0.74)" />
+        </marker>
+      </defs>
+
+      <g class="ring-layer" aria-hidden="true">
+        <g :transform="graphTransform()">
+          <template v-for="depth in [1, 2, 3]" :key="depth">
+            <ellipse v-if="maxVisibleDepth >= depth" :cx="CENTER.x" :cy="CENTER.y" :rx="HOP_RINGS[depth].rx" :ry="HOP_RINGS[depth].ry" />
+            <text v-if="maxVisibleDepth >= depth" :x="HOP_RINGS[depth].labelX" :y="HOP_RINGS[depth].labelY">
+              {{ HOP_RINGS[depth].label }}
+            </text>
+          </template>
+        </g>
+      </g>
+
+      <g class="graph-world" :transform="graphTransform()">
+        <g class="edge-layer">
+          <g v-for="(edge, index) in visibleEdges" :key="`${edge.source}-${edge.target}-${edge.relation}-${index}`">
+            <path
+              :d="edgePath(edge, index)"
+              class="graph-edge"
+              :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
+              :stroke="edgeColor(edge)"
+              marker-end="url(#arrow)"
+              @click.stop="emit('selectEdge', edge)"
+            >
+              <title>{{ edge.source }} -> {{ edge.target }} / {{ edge.relation }}</title>
+            </path>
+            <text
+              v-if="selectedEdge === edge"
+              :x="edgeMidpoint(edge).x"
+              :y="edgeMidpoint(edge).y - 8"
+              class="edge-label selected"
+            >
+              {{ edge.relation }}
+            </text>
+          </g>
+        </g>
+
+        <g class="node-layer">
+          <g
+            v-for="node in visibleNodes"
+            :key="node.id"
+            class="graph-node"
+            :class="{
+              selected: selectedId === node.id,
+              center: centerId === node.id,
+              dimmed: isNodeDimmed(node),
+              dragging: dragState?.type === 'node' && dragState.id === node.id
+            }"
+            :transform="`translate(${point(node.id).x}, ${point(node.id).y})`"
+            @pointerdown="beginNodeDrag($event, node)"
+            @click.stop="emit('selectNode', node)"
+          >
+            <circle class="node-halo" :r="radiusFor(node) + 9" />
+            <circle :r="radiusFor(node)" :fill="colorFor(node)" />
+            <text v-if="shouldShowLabel(node)" :y="-(radiusFor(node) + 11)">{{ shortLabel(nodeDisplayName(node)) }}</text>
+            <title>{{ nodeDisplayName(node) }} / {{ node.display_id || stripInternalId(node.id) }} / {{ node.label }}</title>
+          </g>
+        </g>
+      </g>
+    </svg>
+  </div>
+</template>
+
