@@ -377,11 +377,11 @@ select:focus {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 0.95fr) minmax(320px, 0.65fr);
-  gap: 34px;
+  gap: 28px;
   align-items: center;
-  min-height: 390px;
+  min-height: 348px;
   overflow: hidden;
-  padding: 34px;
+  padding: 30px;
   background:
     linear-gradient(120deg, oklch(0.23 0.016 86 / 0.92), oklch(0.16 0.01 82 / 0.98)),
     var(--panel);
@@ -421,7 +421,7 @@ select:focus {
 }
 
 .overview-hero-copy .overview-import-btn {
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 .overview-graph-mark {

@@ -11,11 +11,8 @@ defineEmits<{
         <div class="panel-kicker">GraphRAG</div>
         <h2>让每一次风控判断都有迹可循</h2>
         <p>
-          用结构化 JSON 或自然语言导入业务链路后，系统会把主体、账户、设备、交易、特征、模型、规则和处置动作统一到同一张 graph 里
-          后续的子图探索、证据问答和影响分析都会围绕这张 graph 展开
-        </p>
-        <p>
-          适合检查资金路径、共享设备与手机号、模型评分依据，以及人工审核和 SAR 报告这类下游处置关系
+          用结构化 JSON 或自然语言导入业务链路后，系统会把主体、账户、设备、交易、特征、模型、规则和处置动作统一到同一张
+          graph 里，后续的子图探索、证据问答和影响分析都会围绕这张 graph 展开
         </p>
         <button class="primary-btn overview-import-btn" type="button" @click="$emit('goImport')">导入图谱</button>
       </div>
