@@ -92,12 +92,14 @@ export interface ImpactPath {
 }
 
 export interface ImpactResponse {
+  answer?: string;
+  answer_source?: string;
+  llm_called?: boolean;
   direct_impacts: string[];
   indirect_impacts: string[];
   target_impact: string[];
   scoped_impact: string[];
   evidence_paths: ImpactPath[];
-  answer?: string;
   summary?: string;
   impact_summary?: string;
   analysis?: string;

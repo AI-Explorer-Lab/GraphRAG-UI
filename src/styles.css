@@ -1381,15 +1381,26 @@ pre {
 }
 
 .edge-label {
-  fill: var(--amber);
+  fill: oklch(0.78 0.08 86);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 850;
+  opacity: 0.86;
   paint-order: stroke;
   pointer-events: none;
   stroke: oklch(0.11 0.01 82);
-  stroke-width: 6px;
+  stroke-width: 5px;
   text-anchor: middle;
+}
+
+.edge-label.selected {
+  fill: var(--amber);
+  font-size: 13px;
+  opacity: 1;
+}
+
+.edge-label.dimmed {
+  opacity: 0.12;
 }
 
 .graph-node {
@@ -1518,7 +1529,7 @@ pre {
 
 .ask-layout,
 .impact-layout {
-  grid-template-columns: 360px minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(280px, 330px) minmax(500px, 1fr) minmax(320px, 380px);
 }
 
 .ask-layout {
@@ -1678,20 +1689,64 @@ h4.markdown-heading {
   align-items: start;
 }
 
+.impact-workspace {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.impact-graph-stage {
+  padding: 18px;
+}
+
+.impact-graph-stage .graph-canvas {
+  min-height: 430px;
+}
+
+.impact-graph-stage .graph-control-strip {
+  min-width: 254px;
+}
+
+.impact-focus-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  color: var(--muted);
+  background: oklch(0.16 0.01 82 / 0.72);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+.impact-focus-strip strong {
+  flex: 0 0 auto;
+  color: var(--amber);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .impact-paths {
-  min-height: 650px;
+  min-height: 0;
 }
 
 .path-stack {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .impact-path {
-  padding: 14px;
+  padding: 12px;
   background: oklch(0.16 0.01 82);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 .path-depth {

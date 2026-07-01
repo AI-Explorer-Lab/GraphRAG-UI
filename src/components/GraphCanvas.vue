@@ -5,7 +5,7 @@ import type { SubgraphEdge, SubgraphNode } from "../types/api";
 type Point = { x: number; y: number };
 type EdgeGeometry = { from: Point; control: Point; to: Point };
 type DragState =
-  | { type: "node"; id: string }
+  | { type: "node"; id: string; offsetX: number; offsetY: number }
   | { type: "pan"; startX: number; startY: number; originX: number; originY: number }
   | null;
 
@@ -58,6 +58,7 @@ const props = defineProps<{
   selectedId?: string;
   selectedEdge?: SubgraphEdge | null;
   fullscreen?: boolean;
+  compact?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -428,6 +429,19 @@ function shouldShowLabel(node: SubgraphNode) {
   return (degreeByNode.value.get(node.id) ?? 0) >= 5 && node.label !== "attribute";
 }
 
+function shouldShowEdgeLabel(edge: SubgraphEdge) {
+  return isSelectedEdge(edge) || props.compact || visibleEdges.value.length <= 18;
+}
+
+function isSelectedEdge(edge: SubgraphEdge) {
+  return Boolean(
+    props.selectedEdge &&
+      props.selectedEdge.source === edge.source &&
+      props.selectedEdge.target === edge.target &&
+      props.selectedEdge.relation === edge.relation
+  );
+}
+
 function edgeGeometry(edge: SubgraphEdge, index: number): EdgeGeometry {
   const sourceCenter = point(edge.source);
   const targetCenter = point(edge.target);
@@ -505,7 +519,7 @@ function isNodeDimmed(node: SubgraphNode) {
 }
 
 function isEdgeDimmed(edge: SubgraphEdge) {
-  if (props.selectedEdge) return props.selectedEdge !== edge;
+  if (props.selectedEdge) return !isSelectedEdge(edge);
   if (!props.selectedId) return false;
   return edge.source !== props.selectedId && edge.target !== props.selectedId;
 }
@@ -529,7 +543,14 @@ function screenToWorld(event: PointerEvent | WheelEvent) {
 function beginNodeDrag(event: PointerEvent, node: SubgraphNode) {
   event.stopPropagation();
   (event.currentTarget as SVGGElement).setPointerCapture(event.pointerId);
-  dragState.value = { type: "node", id: node.id };
+  const world = screenToWorld(event);
+  const current = point(node.id);
+  dragState.value = {
+    type: "node",
+    id: node.id,
+    offsetX: current.x - world.x,
+    offsetY: current.y - world.y
+  };
 }
 
 function beginPan(event: PointerEvent) {
@@ -551,8 +572,8 @@ function onPointerMove(event: PointerEvent) {
     positions.value = {
       ...positions.value,
       [drag.id]: {
-        x: clamp(world.x, 45, VIEWBOX_WIDTH - 45),
-        y: clamp(world.y, 45, VIEWBOX_HEIGHT - 45)
+        x: clamp(world.x + drag.offsetX, 45, VIEWBOX_WIDTH - 45),
+        y: clamp(world.y + drag.offsetY, 45, VIEWBOX_HEIGHT - 45)
       }
     };
     return;
@@ -612,7 +633,7 @@ function resetLayout() {
         <span>{{ visibleNodes.length }} nodes / {{ visibleEdges.length }} edges</span>
       </div>
       <div class="graph-control-actions">
-        <button type="button" class="icon-control" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="emit('toggleFullscreen')">
+        <button v-if="!compact" type="button" class="icon-control" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="emit('toggleFullscreen')">
           {{ isFullscreen ? "Esc" : "⛶" }}
         </button>
         <button type="button" title="Zoom out" @click="zoomBy(0.86)">-</button>
@@ -623,7 +644,7 @@ function resetLayout() {
       </div>
     </div>
 
-    <aside v-if="nodes.length" class="graph-map-legend" aria-label="Graph legend">
+    <aside v-if="nodes.length && !compact" class="graph-map-legend" aria-label="Graph legend">
       <section v-if="nodeLegend.length">
         <h4>Nodes <span>({{ nodes.length }})</span></h4>
         <div class="legend-stack">
@@ -709,7 +730,7 @@ function resetLayout() {
             <path
               :d="edgePath(edge, index)"
               class="graph-edge"
-              :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
+              :class="{ selected: isSelectedEdge(edge), dimmed: isEdgeDimmed(edge) }"
               :stroke="edgeColor(edge)"
               @click.stop="emit('selectEdge', edge)"
             >
@@ -717,23 +738,24 @@ function resetLayout() {
             </path>
             <polygon
               class="graph-edge-flow"
-              :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
+              :class="{ selected: isSelectedEdge(edge), dimmed: isEdgeDimmed(edge) }"
               :points="edgeArrowPoints(edge, index, 0.62, 10, 5)"
               :fill="edgeColor(edge)"
               @click.stop="emit('selectEdge', edge)"
             />
             <polygon
               class="graph-edge-arrow"
-              :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
+              :class="{ selected: isSelectedEdge(edge), dimmed: isEdgeDimmed(edge) }"
               :points="edgeArrowPoints(edge, index)"
               :fill="edgeColor(edge)"
               @click.stop="emit('selectEdge', edge)"
             />
             <text
-              v-if="selectedEdge === edge"
+              v-if="shouldShowEdgeLabel(edge)"
               :x="edgeMidpoint(edge, index).x"
               :y="edgeMidpoint(edge, index).y - 8"
-              class="edge-label selected"
+              class="edge-label"
+              :class="{ selected: isSelectedEdge(edge), dimmed: isEdgeDimmed(edge) }"
             >
               {{ edge.relation }}
             </text>

@@ -107,6 +107,8 @@ export function askGraph(payload: {
 
 export function runImpact(payload: {
   graphId: string;
+  scenario?: string;
+  language?: string;
   source: string;
   target: string;
   relation: RelationType;
@@ -118,6 +120,8 @@ export function runImpact(payload: {
     method: "POST",
     body: JSON.stringify({
       graph_id: payload.graphId,
+      scenario: payload.scenario?.trim() || null,
+      language: payload.language?.trim() || null,
       change_spec: {
         source: payload.source,
         target: payload.target,

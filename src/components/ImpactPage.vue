@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { runImpact } from "../api/client";
-import type { ImpactPath, ImpactResponse, RelationType } from "../types/api";
+import type { ImpactPath, ImpactResponse, RelationType, SubgraphEdge, SubgraphNode } from "../types/api";
+import GraphCanvas from "./GraphCanvas.vue";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
 
 const props = defineProps<{ graphId: string; graphIds?: string[] }>();
@@ -56,6 +57,8 @@ const maxDepth = ref(impactExamples[0].maxDepth);
 const loading = ref(false);
 const error = ref("");
 const result = ref<ImpactResponse | null>(null);
+const selectedGraphNode = ref<SubgraphNode | null>(null);
+const selectedGraphEdge = ref<SubgraphEdge | null>(null);
 
 const graphOptions = computed(() => [...(props.graphIds ?? [])].sort());
 const businessRelationSet = new Set<string>(relations);
@@ -74,6 +77,57 @@ const maxPathDepth = computed(() => Math.max(1, ...(visibleEvidencePaths.value.m
 const impactMarkdown = computed(() => {
   if (!result.value) return "";
   return findNarrative(result.value) || buildImpactMarkdown();
+});
+const impactSourceLabel = computed(() => {
+  if (!result.value) return "业务节点";
+  const source = result.value.answer_source;
+  if (typeof source === "string" && source.trim()) return source.trim();
+  return result.value.llm_called ? "llm" : "业务节点";
+});
+const impactGraphNodes = computed(() => {
+  const nodes = new Map<string, SubgraphNode>();
+  visibleEvidencePaths.value.forEach((path) => {
+    path.path.forEach((nodeId) => {
+      if (nodes.has(nodeId)) return;
+      nodes.set(nodeId, {
+        id: nodeId,
+        display_id: nodeId,
+        label: "entity",
+        level: nodeId === target.value.trim() ? 1 : 2,
+        properties: {
+          id: nodeId,
+          name: prettifyNodeId(nodeId),
+          type: nodeTypeHint(nodeId)
+        }
+      });
+    });
+  });
+  return [...nodes.values()];
+});
+const impactGraphEdges = computed(() => {
+  const edges = new Map<string, SubgraphEdge>();
+  visibleEvidencePaths.value.forEach((path) => {
+    path.relations.forEach((relationName, index) => {
+      const sourceNode = path.path[index];
+      const targetNode = path.path[index + 1];
+      if (!sourceNode || !targetNode) return;
+      const key = `${sourceNode}->${targetNode}:${relationName}`;
+      if (edges.has(key)) return;
+      edges.set(key, {
+        source: sourceNode,
+        target: targetNode,
+        relation: relationName,
+        relation_properties: { impact_depth: path.depth },
+        evidence_refs: []
+      });
+    });
+  });
+  return [...edges.values()];
+});
+const selectedImpactSummary = computed(() => {
+  if (selectedGraphNode.value) return `${selectedGraphNode.value.id} / ${selectedGraphNode.value.properties?.type ?? "node"}`;
+  if (selectedGraphEdge.value) return `${selectedGraphEdge.value.source} -> ${selectedGraphEdge.value.target} / ${selectedGraphEdge.value.relation}`;
+  return "点击节点或关系查看焦点";
 });
 
 watch(
@@ -108,6 +162,37 @@ function sortedLastNodes(paths: ImpactPath[]) {
   return [...new Set(paths.map((path) => path.path[path.path.length - 1]).filter(Boolean))].sort();
 }
 
+function prettifyNodeId(nodeId: string) {
+  return nodeId.replace(/^(usr|acct|wallet|phone|rule|dec|act|txn|biz|mch|feat|mdl|src|report)_/, "").replace(/_/g, " ");
+}
+
+function nodeTypeHint(nodeId: string) {
+  if (nodeId.startsWith("rule_")) return "rule";
+  if (nodeId.startsWith("dec_")) return "decision";
+  if (nodeId.startsWith("act_")) return "action";
+  if (nodeId.startsWith("report_")) return "report";
+  if (nodeId.startsWith("usr_")) return "user";
+  if (nodeId.startsWith("phone_")) return "signal";
+  if (nodeId.startsWith("feat_")) return "feature";
+  if (nodeId.startsWith("mdl_")) return "model";
+  return "entity";
+}
+
+function selectImpactNode(node: SubgraphNode) {
+  selectedGraphNode.value = selectedGraphNode.value?.id === node.id ? null : node;
+  selectedGraphEdge.value = null;
+}
+
+function selectImpactEdge(edge: SubgraphEdge) {
+  selectedGraphEdge.value =
+    selectedGraphEdge.value?.source === edge.source &&
+    selectedGraphEdge.value?.target === edge.target &&
+    selectedGraphEdge.value?.relation === edge.relation
+      ? null
+      : edge;
+  selectedGraphNode.value = null;
+}
+
 function findNarrative(response: ImpactResponse) {
   const fields = ["answer", "summary", "impact_summary", "analysis", "narrative"];
   for (const field of fields) {
@@ -136,6 +221,8 @@ function buildImpactMarkdown() {
 async function run() {
   error.value = "";
   result.value = null;
+  selectedGraphNode.value = null;
+  selectedGraphEdge.value = null;
   if (!localGraphId.value.trim()) {
     error.value = "请先选择一个导入成功的 graph";
     return;
@@ -144,6 +231,8 @@ async function run() {
   try {
     result.value = await runImpact({
       graphId: localGraphId.value.trim(),
+      scenario: scenarioQuestion.value.trim(),
+      language: "zh",
       source: source.value.trim(),
       target: target.value.trim(),
       relation: relation.value,
@@ -209,35 +298,70 @@ async function run() {
       <p v-if="error" class="error-text">{{ error }}</p>
     </aside>
 
-    <main class="impact-paths panel">
-      <div class="panel-header">
-        <h3>Evidence paths</h3>
-        <span class="chip">from evidence_paths</span>
-      </div>
-      <div v-if="!result" class="empty-state">
-        运行后根据后端返回的 evidence_paths 生成路径视图
-      </div>
-      <div v-else-if="!visibleEvidencePaths.length" class="empty-state">没有找到业务下游路径</div>
-      <div v-else class="path-stack">
-        <div v-for="(path, index) in visibleEvidencePaths" :key="index" class="impact-path">
-          <div class="path-depth" :style="{ width: `${(path.depth / maxPathDepth) * 100}%` }">
-            depth {{ path.depth }}
+    <main class="impact-workspace">
+      <section class="graph-stage impact-graph-stage">
+        <div class="stage-header">
+          <div>
+            <h3>影响子图</h3>
+            <p>由 evidence_paths 生成，可拖拽、缩放、点选节点和关系</p>
           </div>
-          <div class="path-line">
-            <template v-for="(node, nodeIndex) in path.path" :key="`${index}-${node}`">
-              <span class="path-node">{{ node }}</span>
-              <span v-if="path.relations[nodeIndex]" class="path-relation">{{ path.relations[nodeIndex] }}</span>
-            </template>
+          <span class="chip">{{ impactGraphNodes.length }} nodes / {{ impactGraphEdges.length }} edges</span>
+        </div>
+
+        <GraphCanvas
+          v-if="result && impactGraphNodes.length"
+          :nodes="impactGraphNodes"
+          :edges="impactGraphEdges"
+          :hidden-relations="[]"
+          :hidden-labels="[]"
+          :center-id="target.trim()"
+          :selected-id="selectedGraphNode?.id"
+          :selected-edge="selectedGraphEdge"
+          compact
+          @select-node="selectImpactNode"
+          @select-edge="selectImpactEdge"
+          @toggle-label="() => {}"
+          @toggle-relation="() => {}"
+          @toggle-fullscreen="() => {}"
+        />
+        <div v-else class="empty-state">运行后展示本次影响传播子图</div>
+
+        <div v-if="result && impactGraphNodes.length" class="impact-focus-strip">
+          <strong>当前焦点</strong>
+          <span>{{ selectedImpactSummary }}</span>
+        </div>
+      </section>
+
+      <section class="impact-paths panel">
+        <div class="panel-header">
+          <h3>路径明细</h3>
+          <span class="chip">from evidence_paths</span>
+        </div>
+        <div v-if="!result" class="empty-state">
+          运行后根据后端返回的 evidence_paths 生成路径视图
+        </div>
+        <div v-else-if="!visibleEvidencePaths.length" class="empty-state">没有找到业务下游路径</div>
+        <div v-else class="path-stack">
+          <div v-for="(path, index) in visibleEvidencePaths" :key="index" class="impact-path">
+            <div class="path-depth" :style="{ width: `${(path.depth / maxPathDepth) * 100}%` }">
+              depth {{ path.depth }}
+            </div>
+            <div class="path-line">
+              <template v-for="(node, nodeIndex) in path.path" :key="`${index}-${node}`">
+                <span class="path-node">{{ node }}</span>
+                <span v-if="path.relations[nodeIndex]" class="path-relation">{{ path.relations[nodeIndex] }}</span>
+              </template>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     </main>
 
     <aside class="side-panel">
       <div class="panel impact-results">
         <div class="panel-header">
           <h3>Impacts</h3>
-          <span class="chip">业务节点</span>
+          <span class="chip">{{ impactSourceLabel }}</span>
         </div>
 
         <MarkdownRenderer v-if="result" class="impact-markdown" :content="impactMarkdown" />
