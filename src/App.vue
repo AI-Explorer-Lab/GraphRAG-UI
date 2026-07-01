@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { fetchGraphIds, syncGraphIds } from "./api/client";
 import AskPage from "./components/AskPage.vue";
 import ImpactPage from "./components/ImpactPage.vue";
@@ -25,6 +25,13 @@ const subgraphCenterNodeId = ref("");
 const prefilledQuestion = ref("");
 const lastAsk = ref<AskResponse | null>(null);
 const syncingGraphs = ref(false);
+const pageScrollPositions = ref<Record<PageKey, number>>({
+  overview: 0,
+  import: 0,
+  subgraph: 0,
+  ask: 0,
+  impact: 0
+});
 
 watch(graphId, (value) => {
   localStorage.setItem("graphrag-ui:graphId", value);
@@ -65,12 +72,33 @@ function handleImported(result: ImportResponse) {
   if (!graphIds.value.includes(result.graph_id)) graphIds.value = [...graphIds.value, result.graph_id].sort();
   void refreshGraphIds();
   subgraphCenterNodeId.value = result.focus_node_id || "";
-  activePage.value = "subgraph";
+  setActivePage("subgraph");
 }
 
 function handleAskFromText(question: string) {
   prefilledQuestion.value = question;
-  activePage.value = "ask";
+  setActivePage("ask");
+}
+
+function setActivePage(page: PageKey) {
+  if (page === activePage.value) return;
+  saveActivePageScroll();
+  activePage.value = page;
+  void restorePageScroll(page);
+}
+
+function saveActivePageScroll() {
+  pageScrollPositions.value = {
+    ...pageScrollPositions.value,
+    [activePage.value]: window.scrollY
+  };
+}
+
+async function restorePageScroll(page: PageKey) {
+  await nextTick();
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: pageScrollPositions.value[page] ?? 0, left: 0, behavior: "auto" });
+  });
 }
 </script>
 
@@ -91,7 +119,7 @@ function handleAskFromText(question: string) {
           :key="item.key"
           class="nav-item"
           :class="{ active: activePage === item.key }"
-          @click="activePage = item.key"
+          @click="setActivePage(item.key)"
         >
           <span>{{ item.label }}</span>
           <small>{{ item.subtitle }}</small>
@@ -115,7 +143,7 @@ function handleAskFromText(question: string) {
 
       <OverviewPage
         v-if="activePage === 'overview'"
-        @go-import="activePage = 'import'"
+        @go-import="setActivePage('import')"
       />
 
       <ImportPage
