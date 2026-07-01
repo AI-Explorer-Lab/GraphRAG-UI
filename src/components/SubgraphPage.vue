@@ -4,11 +4,11 @@ import { fetchSubgraph } from "../api/client";
 import type { SubgraphEdge, SubgraphNode, SubgraphResponse } from "../types/api";
 import GraphCanvas from "./GraphCanvas.vue";
 
-type LayerMode = "business" | "entity_attribute" | "semantic" | "full" | "custom";
+type LayerMode = "level1_attributes" | "level2_relations" | "level3_keywords" | "level4_communities" | "full" | "custom";
 
 const businessRelations = ["owns", "uses", "transfers_to", "provides_to", "scores", "triggers"];
-const systemRelations = ["has_attribute", "member_of", "represents_community", "represented_by", "has_keyword", "represents_entity"];
-const defaultHiddenRelations = ["has_attribute", "represents_community", "represented_by", "has_keyword", "represents_entity"];
+const systemRelations = ["has", "has_attribute", "member_of", "represents_community", "represented_by", "has_keyword", "represents_entity"];
+const defaultHiddenRelations = ["has", "has_attribute", "member_of", "represents_community", "represented_by", "has_keyword", "represents_entity"];
 const defaultHiddenLabels = ["attribute", "keyword", "community"];
 const nodeLabels = ["entity", "attribute", "keyword", "community"];
 
@@ -24,7 +24,7 @@ const error = ref("");
 const subgraph = ref<SubgraphResponse | null>(null);
 const hiddenRelations = ref<string[]>([...defaultHiddenRelations]);
 const hiddenLabels = ref<string[]>([...defaultHiddenLabels]);
-const layerMode = ref<LayerMode>("business");
+const layerMode = ref<LayerMode>("level2_relations");
 const selectedNode = ref<SubgraphNode | null>(null);
 const selectedEdge = ref<SubgraphEdge | null>(null);
 const lastSearch = ref<{ nodeId: string; found: boolean } | null>(null);
@@ -35,10 +35,11 @@ const graphOptions = computed(() => {
 });
 
 const layerModes: Array<{ value: LayerMode; label: string; description: string }> = [
-  { value: "business", label: "业务主干", description: "只看实体和业务关系" },
-  { value: "entity_attribute", label: "实体 + 属性", description: "排查字段、标签和属性节点" },
-  { value: "semantic", label: "语义聚合", description: "加入关键词和社区聚合层" },
-  { value: "full", label: "完整四层", description: "展示后端返回的全部层级" }
+  { value: "level1_attributes", label: "L1 属性层", description: "实体属性与字段信息" },
+  { value: "level2_relations", label: "L2 关系层", description: "实体之间的业务关系三元组" },
+  { value: "level3_keywords", label: "L3 关键词层", description: "关键词索引与代表实体" },
+  { value: "level4_communities", label: "L4 社区层", description: "社区结构与成员归属" },
+  { value: "full", label: "全部层叠", description: "叠加展示 L1-L4 全部层级" }
 ];
 
 watch(
@@ -158,7 +159,7 @@ function clearGraphState() {
   lastSearch.value = null;
 }
 
-async function loadGraphOverview(graphIdOverride?: string) {
+async function loadGraphOverview(graphIdOverride?: string, resetLayer = true) {
   const graphId = (graphIdOverride ?? localGraphId.value).trim();
   const serial = ++requestSerial.value;
   error.value = "";
@@ -166,7 +167,7 @@ async function loadGraphOverview(graphIdOverride?: string) {
   selectedEdge.value = null;
   activeCenterNodeId.value = "";
   lastSearch.value = null;
-  applyLayerMode("business");
+  if (resetLayer) applyLayerMode("level2_relations");
 
   if (!graphId) {
     clearGraphState();
@@ -175,7 +176,7 @@ async function loadGraphOverview(graphIdOverride?: string) {
 
   loading.value = true;
   try {
-    const response = await fetchSubgraph(graphId, undefined, hops.value);
+    const response = await fetchSubgraph(graphId, undefined, hops.value, backendViewForLayer());
     if (serial !== requestSerial.value) return;
     subgraph.value = response;
     emit("updateGraphId", graphId);
@@ -201,13 +202,13 @@ async function searchNode(explicitNodeId?: string) {
     return;
   }
   if (!center) {
-    await loadGraphOverview(graphId);
+    await loadGraphOverview(graphId, false);
     return;
   }
 
   loading.value = true;
   try {
-    const response = await fetchSubgraph(graphId, center, hops.value);
+    const response = await fetchSubgraph(graphId, center, hops.value, backendViewForLayer());
     if (serial !== requestSerial.value) return;
 
     emit("updateGraphId", graphId);
@@ -236,35 +237,41 @@ function handleGraphSelection() {
 }
 
 function toggleRelation(relation: string) {
-  layerMode.value = "custom";
   hiddenRelations.value = hiddenRelations.value.includes(relation)
     ? hiddenRelations.value.filter((item) => item !== relation)
     : [...hiddenRelations.value, relation];
 }
 
+function toggleLabel(label: string) {
+  hiddenLabels.value = hiddenLabels.value.includes(label)
+    ? hiddenLabels.value.filter((item) => item !== label)
+    : [...hiddenLabels.value, label];
+}
+
 function toggleAttributes() {
-  layerMode.value = "custom";
   if (hiddenLabels.value.includes("attribute")) {
-    hiddenLabels.value = hiddenLabels.value.filter((label) => label !== "attribute");
-    hiddenRelations.value = hiddenRelations.value.filter((relation) => relation !== "has_attribute");
-  } else {
-    hiddenLabels.value = [...hiddenLabels.value, "attribute"];
-    if (!hiddenRelations.value.includes("has_attribute")) hiddenRelations.value = [...hiddenRelations.value, "has_attribute"];
+    applyLayerMode("level1_attributes");
+    reloadCurrentGraph();
+    return;
   }
+  hiddenLabels.value = [...hiddenLabels.value, "attribute"];
+  hiddenRelations.value = Array.from(new Set([...hiddenRelations.value, "has", "has_attribute"]));
 }
 
 function hiddenLabelsForMode(mode: LayerMode) {
-  if (mode === "business") return [...defaultHiddenLabels];
-  if (mode === "entity_attribute") return ["keyword", "community"];
-  if (mode === "semantic") return ["attribute"];
+  if (mode === "level1_attributes") return ["keyword", "community"];
+  if (mode === "level2_relations") return [...defaultHiddenLabels];
+  if (mode === "level3_keywords") return ["attribute"];
+  if (mode === "level4_communities") return ["attribute", "keyword"];
   if (mode === "full") return [];
   return [...hiddenLabels.value];
 }
 
 function hiddenRelationsForMode(mode: LayerMode) {
-  if (mode === "business") return [...defaultHiddenRelations];
-  if (mode === "entity_attribute") return defaultHiddenRelations.filter((relation) => relation !== "has_attribute");
-  if (mode === "semantic") return ["has_attribute"];
+  if (mode === "level1_attributes") return defaultHiddenRelations.filter((relation) => relation !== "has_attribute");
+  if (mode === "level2_relations") return defaultHiddenRelations.filter((relation) => relation !== "has");
+  if (mode === "level3_keywords") return ["has", "has_attribute", ...businessRelations, "member_of", "represents_community", "represented_by"];
+  if (mode === "level4_communities") return ["has", "has_attribute", ...businessRelations, "has_keyword", "represents_entity"];
   if (mode === "full") return [];
   return [...hiddenRelations.value];
 }
@@ -275,9 +282,28 @@ function applyLayerMode(mode: LayerMode) {
   hiddenRelations.value = hiddenRelationsForMode(mode);
 }
 
+function backendViewForLayer() {
+  return layerMode.value === "custom" ? "full" : layerMode.value;
+}
+
+function reloadCurrentGraph() {
+  const graphId = localGraphId.value.trim();
+  if (!graphId) return;
+  if (activeCenterNodeId.value) void searchNode(activeCenterNodeId.value);
+  else void loadGraphOverview(graphId, false);
+}
+
+function handleLayerModeChange(event: Event) {
+  const target = event.target as HTMLSelectElement | null;
+  const mode = (target?.value || layerMode.value) as LayerMode;
+  applyLayerMode(mode);
+  reloadCurrentGraph();
+}
+
 function resetView() {
-  applyLayerMode("business");
+  applyLayerMode("level2_relations");
   selectedEdge.value = null;
+  reloadCurrentGraph();
 }
 
 function selectNode(node: SubgraphNode) {
@@ -354,7 +380,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
       <div class="subgraph-title">
         <span class="panel-kicker">Graph exploration</span>
         <h2>以节点为中心的多层子图</h2>
-        <p>选择 graph 后自动加载业务主干；输入 node_id 和 hops 后搜索邻域，并按当前图层判断结果是否可见</p>
+        <p>选择 graph 后自动加载 L2 关系层；输入 node_id 和 hops 后搜索邻域，并按当前 level 判断结果是否可见</p>
       </div>
 
       <div class="subgraph-query">
@@ -394,7 +420,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
           <div class="view-actions">
             <label class="layer-select">
               图层视图
-              <select v-model="layerMode" @change="applyLayerMode(layerMode)">
+              <select v-model="layerMode" @change="handleLayerModeChange">
                 <option v-for="mode in layerModes" :key="mode.value" :value="mode.value">{{ mode.label }}</option>
                 <option v-if="layerMode === 'custom'" value="custom">自定义筛选</option>
               </select>
@@ -403,7 +429,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
             <button class="view-pill" type="button" :class="{ active: hasAttributesVisible }" @click="toggleAttributes">
               {{ hasAttributesVisible ? "隐藏属性节点" : "显示属性节点" }}
             </button>
-            <button class="view-pill" type="button" @click="resetView">恢复业务主干</button>
+            <button class="view-pill" type="button" @click="resetView">恢复 L2 关系层</button>
           </div>
         </div>
 
@@ -460,14 +486,10 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
           :selected-edge="selectedEdge"
           @select-node="selectNode"
           @select-edge="selectEdge"
+          @toggle-label="toggleLabel"
+          @toggle-relation="toggleRelation"
         />
 
-        <div class="graph-legend">
-          <span><i class="legend-dot user"></i>实体/业务对象</span>
-          <span><i class="legend-dot attribute"></i>属性/字段</span>
-          <span><i class="legend-dot community"></i>社区/关键词</span>
-          <span><i class="legend-line"></i>方向关系</span>
-        </div>
       </main>
 
       <aside class="inspector-drawer">

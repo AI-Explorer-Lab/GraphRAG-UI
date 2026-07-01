@@ -68,8 +68,8 @@ export function importGraphFromText(payload: {
   });
 }
 
-export function fetchSubgraph(graphId: string, nodeId: string | undefined, hops: number) {
-  const params = new URLSearchParams({ hops: String(hops) });
+export function fetchSubgraph(graphId: string, nodeId: string | undefined, hops: number, view = "full") {
+  const params = new URLSearchParams({ hops: String(hops), view });
   const trimmedNodeId = nodeId?.trim();
   if (trimmedNodeId) params.set("node_id", trimmedNodeId);
   return requestJson<SubgraphResponse>(`/v1/graphs/${encodeURIComponent(graphId)}/subgraph?${params.toString()}`);

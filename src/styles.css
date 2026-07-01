@@ -1011,6 +1011,16 @@ pre {
   border-radius: 12px;
 }
 
+.graph-canvas.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100vw;
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+}
+
 .graph-canvas.panning {
   cursor: grabbing;
 }
@@ -1073,10 +1083,154 @@ pre {
   font-weight: 850;
 }
 
+.graph-control-actions .icon-control {
+  min-width: 38px;
+  font-size: 13px;
+}
+
 .graph-control-actions button:hover {
   color: oklch(0.16 0.012 80);
   background: var(--amber);
   border-color: var(--amber);
+}
+
+.graph-map-legend {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  width: min(226px, calc(100% - 28px));
+  max-height: calc(100% - 28px);
+  overflow: auto;
+  padding: 14px;
+  background: oklch(0.13 0.01 82 / 0.94);
+  border: 1px solid oklch(0.46 0.02 82 / 0.78);
+  border-radius: 12px;
+  box-shadow: 0 18px 46px oklch(0.08 0.01 83 / 0.42);
+}
+
+.graph-map-legend section + section {
+  margin-top: 18px;
+}
+
+.graph-map-legend h4 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.graph-map-legend h4 span {
+  color: var(--muted);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.legend-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.legend-node-pill,
+.legend-edge-pill {
+  width: 100%;
+  border: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--text);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    opacity 160ms ease-out,
+    filter 160ms ease-out,
+    transform 160ms ease-out,
+    background 160ms ease-out,
+    border-color 160ms ease-out;
+}
+
+.legend-node-pill {
+  padding: 6px 9px;
+  background: oklch(0.2 0.011 82 / 0.82);
+  border: 1px solid oklch(0.5 0.02 82 / 0.62);
+  border-radius: 999px;
+}
+
+.legend-node-pill:hover,
+.legend-edge-pill:hover {
+  filter: brightness(1.18);
+  transform: translateX(2px);
+}
+
+.legend-node-pill:focus-visible,
+.legend-edge-pill:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.legend-node-pill i {
+  width: 12px;
+  height: 12px;
+  background: var(--legend-color);
+  border: 1px solid oklch(0.92 0.02 86 / 0.65);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--legend-color) 16%, transparent);
+}
+
+.legend-edge-pill {
+  position: relative;
+  padding: 6px 10px 6px 8px;
+  background: color-mix(in oklch, var(--legend-color) 32%, oklch(0.14 0.01 82));
+  border: 1px solid color-mix(in oklch, var(--legend-color) 68%, oklch(0.34 0.012 82));
+  border-radius: 8px;
+}
+
+.legend-edge-pill i {
+  width: 22px;
+  height: 4px;
+  background: var(--legend-color);
+  border-radius: 999px;
+  box-shadow: 0 0 10px color-mix(in oklch, var(--legend-color) 42%, transparent);
+}
+
+.legend-node-pill.muted,
+.legend-edge-pill.muted {
+  opacity: 0.4;
+  filter: grayscale(0.35);
+}
+
+.legend-node-pill.muted i,
+.legend-edge-pill.muted i {
+  opacity: 0.5;
+}
+
+.legend-edge-pill.muted {
+  background: oklch(0.17 0.01 82 / 0.82);
+  border-color: oklch(0.42 0.012 82 / 0.6);
+}
+
+.legend-node-pill b,
+.legend-edge-pill b {
+  overflow: hidden;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-node-pill em,
+.legend-edge-pill em {
+  color: var(--amber);
+  font-style: normal;
+  font-weight: 900;
 }
 
 .graph-canvas svg {
@@ -1088,6 +1242,11 @@ pre {
   cursor: grab;
   user-select: none;
   touch-action: none;
+}
+
+.graph-canvas.fullscreen svg {
+  height: 100vh;
+  min-height: 100vh;
 }
 
 .graph-empty {
@@ -1123,12 +1282,15 @@ pre {
 
 .graph-edge {
   fill: none;
-  opacity: 0.72;
+  opacity: 0.82;
   stroke-linecap: round;
-  stroke-width: 1.8;
+  stroke-width: 2.1;
   cursor: pointer;
   pointer-events: stroke;
-  transition: 160ms ease-out;
+  transition:
+    opacity 120ms ease-out,
+    stroke-width 120ms ease-out,
+    filter 120ms ease-out;
 }
 
 .graph-edge:hover,
@@ -1167,7 +1329,10 @@ pre {
   stroke: oklch(0.92 0.02 86 / 0.65);
   stroke-width: 1;
   filter: drop-shadow(0 8px 16px oklch(0.05 0.01 83 / 0.36));
-  transition: 160ms ease-out;
+  transition:
+    stroke 120ms ease-out,
+    stroke-width 120ms ease-out,
+    filter 120ms ease-out;
 }
 
 .graph-node.center .node-halo {
@@ -1209,43 +1374,6 @@ pre {
 .graph-node:hover .node-halo {
   fill: oklch(0.77 0.14 78 / 0.18);
   stroke: oklch(0.77 0.14 78 / 0.55);
-}
-
-.graph-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  padding: 12px 2px 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.graph-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.legend-dot {
-  width: 10px;
-  height: 10px;
-  background: var(--cyan);
-  border-radius: 999px;
-}
-
-.legend-dot.attribute {
-  background: var(--rust);
-}
-
-.legend-dot.community {
-  background: var(--moss);
-}
-
-.legend-line {
-  width: 24px;
-  height: 2px;
-  background: oklch(0.72 0.11 210);
-  border-radius: 999px;
 }
 
 .inspector-drawer {

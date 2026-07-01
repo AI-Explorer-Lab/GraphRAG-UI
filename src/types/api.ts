@@ -67,6 +67,7 @@ export interface SubgraphEdge {
 export interface SubgraphResponse {
   nodes: SubgraphNode[];
   edges: SubgraphEdge[];
+  view?: string;
 }
 
 export interface AskResponse {

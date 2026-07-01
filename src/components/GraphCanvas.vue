@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { SubgraphEdge, SubgraphNode } from "../types/api";
 
 type Point = { x: number; y: number };
@@ -11,6 +11,37 @@ type DragState =
 const VIEWBOX_WIDTH = 1280;
 const VIEWBOX_HEIGHT = 760;
 const CENTER = { x: VIEWBOX_WIDTH / 2, y: VIEWBOX_HEIGHT / 2 };
+const NODE_LABEL_ORDER = ["entity", "attribute", "keyword", "community"];
+const RELATION_ORDER = [
+  "has",
+  "has_attribute",
+  "owns",
+  "uses",
+  "transfers_to",
+  "provides_to",
+  "scores",
+  "triggers",
+  "member_of",
+  "has_keyword",
+  "represents_community",
+  "represented_by",
+  "represents_entity"
+];
+const EDGE_COLORS: Record<string, string> = {
+  has: "oklch(0.82 0.17 92)",
+  has_attribute: "oklch(0.70 0.18 36)",
+  owns: "oklch(0.74 0.16 222)",
+  uses: "oklch(0.76 0.17 184)",
+  transfers_to: "oklch(0.68 0.20 28)",
+  provides_to: "oklch(0.73 0.17 145)",
+  scores: "oklch(0.76 0.18 304)",
+  triggers: "oklch(0.72 0.20 14)",
+  member_of: "oklch(0.72 0.18 270)",
+  has_keyword: "oklch(0.80 0.17 68)",
+  represents_community: "oklch(0.76 0.16 164)",
+  represented_by: "oklch(0.72 0.17 332)",
+  represents_entity: "oklch(0.74 0.18 248)"
+};
 const HOP_RINGS: Record<number, { rx: number; ry: number; label: string; labelX: number; labelY: number }> = {
   1: { rx: 210, ry: 136, label: "1-hop", labelX: CENTER.x + 156, labelY: CENTER.y - 118 },
   2: { rx: 390, ry: 252, label: "2-hop", labelX: CENTER.x + 330, labelY: CENTER.y - 232 },
@@ -30,12 +61,17 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectNode: [node: SubgraphNode];
   selectEdge: [edge: SubgraphEdge];
+  toggleLabel: [label: string];
+  toggleRelation: [relation: string];
 }>();
 
+const graphFrameRef = ref<HTMLElement | null>(null);
 const svgRef = ref<SVGSVGElement | null>(null);
 const positions = ref<Record<string, Point>>({});
 const dragState = ref<DragState>(null);
 const viewport = ref({ x: 0, y: 0, scale: 1 });
+const nativeFullscreen = ref(false);
+const fallbackFullscreen = ref(false);
 
 const hiddenLabelSet = computed(() => new Set(props.hiddenLabels ?? []));
 const drawableNodes = computed(() => props.nodes.filter((node) => !hiddenLabelSet.value.has(node.label)));
@@ -66,6 +102,29 @@ const visibleNodes = computed(() => {
 });
 
 const nodeById = computed(() => new Map(props.nodes.map((node) => [node.id, node])));
+const isFullscreen = computed(() => nativeFullscreen.value || fallbackFullscreen.value);
+
+const nodeLegend = computed(() => {
+  const counts = new Map<string, number>();
+  props.nodes.forEach((node) => counts.set(node.label, (counts.get(node.label) ?? 0) + 1));
+  return sortWithOrder(Array.from(counts.entries()), NODE_LABEL_ORDER).map(([label, count]) => ({
+    key: label,
+    count,
+    color: colorForLabel(label),
+    hidden: hiddenLabelSet.value.has(label)
+  }));
+});
+
+const edgeLegend = computed(() => {
+  const counts = new Map<string, number>();
+  props.edges.forEach((edge) => counts.set(edge.relation, (counts.get(edge.relation) ?? 0) + 1));
+  return sortWithOrder(Array.from(counts.entries()), RELATION_ORDER).map(([relation, count]) => ({
+    key: relation,
+    count,
+    color: edgeColorForRelation(relation),
+    hidden: props.hiddenRelations.includes(relation)
+  }));
+});
 
 const degreeByNode = computed(() => {
   const degrees = new Map<string, number>();
@@ -100,19 +159,37 @@ const neighborIds = computed(() => {
 const layoutSignature = computed(() =>
   [
     props.centerId ?? "",
-    visibleNodes.value.map((node) => node.id).sort().join("|"),
-    visibleEdges.value.map((edge) => `${edge.source}:${edge.relation}:${edge.target}`).sort().join("|")
+    props.nodes.map((node) => node.id).sort().join("|"),
+    props.edges.map((edge) => `${edge.source}:${edge.relation}:${edge.target}`).sort().join("|")
   ].join("::")
 );
 
 watch(
   layoutSignature,
   () => {
-    positions.value = computeHopRingLayout(visibleNodes.value, visibleEdges.value);
+    positions.value = computeHopRingLayout(props.nodes, props.edges);
     viewport.value = { x: 0, y: 0, scale: 1 };
   },
   { immediate: true }
 );
+
+onMounted(() => {
+  document.addEventListener("fullscreenchange", syncFullscreenState);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("fullscreenchange", syncFullscreenState);
+});
+
+function sortWithOrder(entries: Array<[string, number]>, order: string[]) {
+  return entries.sort((a, b) => {
+    const left = order.indexOf(a[0]);
+    const right = order.indexOf(b[0]);
+    const leftRank = left === -1 ? order.length : left;
+    const rightRank = right === -1 ? order.length : right;
+    return leftRank - rightRank || a[0].localeCompare(b[0]);
+  });
+}
 
 function computeHopRingLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
   if (!nodes.length) return {};
@@ -121,6 +198,7 @@ function computeHopRingLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
 
 function seedPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
   const depths = computeDepths(nodes, edges);
+  const layoutDegrees = computeDegrees(edges);
   const groups = new Map<number, SubgraphNode[]>();
   nodes.forEach((node) => {
     const depth = Math.min(depths.get(node.id) ?? 3, 3);
@@ -139,7 +217,7 @@ function seedPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
     const ring = HOP_RINGS[depth] ?? HOP_RINGS[3];
     const sorted = group
       .slice()
-      .sort((a, b) => (degreeByNode.value.get(b.id) ?? 0) - (degreeByNode.value.get(a.id) ?? 0) || a.id.localeCompare(b.id));
+      .sort((a, b) => (layoutDegrees.get(b.id) ?? 0) - (layoutDegrees.get(a.id) ?? 0) || a.id.localeCompare(b.id));
 
     sorted.forEach((node, index) => {
       if (depth === 0) {
@@ -156,6 +234,15 @@ function seedPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
   });
 
   return map;
+}
+
+function computeDegrees(edges: SubgraphEdge[]) {
+  const degrees = new Map<string, number>();
+  edges.forEach((edge) => {
+    degrees.set(edge.source, (degrees.get(edge.source) ?? 0) + 1);
+    degrees.set(edge.target, (degrees.get(edge.target) ?? 0) + 1);
+  });
+  return degrees;
 }
 
 function computeDepths(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
@@ -202,23 +289,27 @@ function hashString(value: string) {
   return hash;
 }
 
-function colorFor(node: SubgraphNode) {
-  if (node.label === "community") return "var(--moss)";
-  if (node.label === "keyword") return "var(--amber)";
-  if (node.label === "attribute") return "var(--rust)";
+function colorForLabel(label: string) {
+  if (label === "community") return "var(--moss)";
+  if (label === "keyword") return "var(--amber)";
+  if (label === "attribute") return "var(--rust)";
   return "var(--cyan)";
 }
 
+function colorFor(node: SubgraphNode) {
+  return colorForLabel(node.label);
+}
+
+function edgeColorForRelation(relation: string) {
+  return EDGE_COLORS[relation] ?? "oklch(0.62 0.03 86 / 0.58)";
+}
+
 function edgeColor(edge: SubgraphEdge) {
-  const colors: Record<string, string> = {
-    owns: "oklch(0.72 0.11 210)",
-    uses: "oklch(0.72 0.10 188)",
-    transfers_to: "oklch(0.66 0.16 34)",
-    provides_to: "oklch(0.68 0.10 145)",
-    scores: "oklch(0.77 0.14 78)",
-    triggers: "oklch(0.68 0.15 20)"
-  };
-  return colors[edge.relation] ?? "oklch(0.62 0.03 86 / 0.58)";
+  return edgeColorForRelation(edge.relation);
+}
+
+function legendStyle(color: string) {
+  return { "--legend-color": color };
 }
 
 function radiusFor(node: SubgraphNode) {
@@ -387,19 +478,45 @@ function resetViewport() {
 }
 
 function resetLayout() {
-  positions.value = computeHopRingLayout(visibleNodes.value, visibleEdges.value);
+  positions.value = computeHopRingLayout(props.nodes, props.edges);
   resetViewport();
+}
+
+function syncFullscreenState() {
+  nativeFullscreen.value = document.fullscreenElement === graphFrameRef.value;
+  if (nativeFullscreen.value) fallbackFullscreen.value = false;
+}
+
+async function toggleFullscreen() {
+  const frame = graphFrameRef.value;
+  if (!frame) return;
+  if (nativeFullscreen.value) {
+    await document.exitFullscreen();
+    return;
+  }
+  if (fallbackFullscreen.value) {
+    fallbackFullscreen.value = false;
+    return;
+  }
+  try {
+    await frame.requestFullscreen();
+  } catch {
+    fallbackFullscreen.value = true;
+  }
 }
 </script>
 
 <template>
-  <div class="graph-canvas" :class="{ panning: dragState?.type === 'pan' }">
+  <div ref="graphFrameRef" class="graph-canvas" :class="{ panning: dragState?.type === 'pan', fullscreen: isFullscreen }">
     <div class="graph-control-strip">
       <div class="graph-control-copy">
         <strong>Explore</strong>
         <span>{{ visibleNodes.length }} nodes / {{ visibleEdges.length }} edges</span>
       </div>
       <div class="graph-control-actions">
+        <button type="button" class="icon-control" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="toggleFullscreen">
+          {{ isFullscreen ? "Esc" : "⛶" }}
+        </button>
         <button type="button" title="Zoom out" @click="zoomBy(0.86)">-</button>
         <span>{{ Math.round(viewport.scale * 100) }}%</span>
         <button type="button" title="Zoom in" @click="zoomBy(1.16)">+</button>
@@ -407,6 +524,49 @@ function resetLayout() {
         <button type="button" title="Re-run layout" @click="resetLayout">Layout</button>
       </div>
     </div>
+
+    <aside v-if="nodes.length" class="graph-map-legend" aria-label="Graph legend">
+      <section v-if="nodeLegend.length">
+        <h4>Nodes <span>({{ nodes.length }})</span></h4>
+        <div class="legend-stack">
+          <button
+            v-for="item in nodeLegend"
+            :key="item.key"
+            type="button"
+            class="legend-node-pill"
+            :class="{ muted: item.hidden }"
+            :style="legendStyle(item.color)"
+            :aria-pressed="!item.hidden"
+            :title="item.hidden ? `Show ${item.key}` : `Hide ${item.key}`"
+            @click="emit('toggleLabel', item.key)"
+          >
+            <i></i>
+            <b>{{ item.key }}</b>
+            <em>{{ item.count }}</em>
+          </button>
+        </div>
+      </section>
+      <section v-if="edgeLegend.length">
+        <h4>Edges <span>({{ edges.length }})</span></h4>
+        <div class="legend-stack">
+          <button
+            v-for="item in edgeLegend"
+            :key="item.key"
+            type="button"
+            class="legend-edge-pill"
+            :class="{ muted: item.hidden }"
+            :style="legendStyle(item.color)"
+            :aria-pressed="!item.hidden"
+            :title="item.hidden ? `Show ${item.key}` : `Hide ${item.key}`"
+            @click="emit('toggleRelation', item.key)"
+          >
+            <i></i>
+            <b>{{ item.key }}</b>
+            <em>{{ item.count }}</em>
+          </button>
+        </div>
+      </section>
+    </aside>
 
     <div v-if="!nodes.length" class="graph-empty">
       <strong>等待子图加载</strong>
