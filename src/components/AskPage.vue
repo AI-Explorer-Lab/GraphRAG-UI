@@ -65,12 +65,111 @@ const triples = computed(() => response.value?.retrieval?.triples ?? []);
 const chunkIds = computed(() => response.value?.retrieval?.chunk_ids ?? []);
 const chunkContents = computed(() => response.value?.retrieval?.chunk_contents ?? []);
 const reasoningSteps = computed(() => response.value?.retrieval?.reasoning_steps ?? []);
+const nodeNameById = computed(() => {
+  const names = new Map<string, string>();
+  chunkContents.value.forEach((chunk) => {
+    if (typeof chunk !== "string") return;
+    try {
+      const parsed = JSON.parse(chunk) as { id?: unknown; entity_id?: unknown; name?: unknown };
+      const id = typeof parsed.id === "string" ? parsed.id : typeof parsed.entity_id === "string" ? parsed.entity_id : "";
+      const name = typeof parsed.name === "string" ? parsed.name.trim() : "";
+      if (id && name) names.set(id, name);
+    } catch {
+      // Non-JSON chunks are still useful as raw evidence, but cannot provide display names.
+    }
+  });
+  return names;
+});
+const readableTriples = computed(() => {
+  return triples.value
+    .map((triple) => {
+      const match = triple.match(/^\(([^,]+),\s*([^,]+),\s*([^)]+)\)$/);
+      if (!match) return null;
+      return {
+        source: match[1].trim(),
+        relation: match[2].trim(),
+        target: match[3].trim()
+      };
+    })
+    .filter((triple): triple is { source: string; relation: string; target: string } => Boolean(triple));
+});
+const displayAnswer = computed(() => (response.value?.answer ? formatAnswerWithNodeNames(response.value.answer) : ""));
+
+const readableAnswerInstruction = `回答格式要求：
+1. 正文优先使用节点的可读名称或业务名称，不要把节点 id 当作主要表述；只有没有名称时才使用 id。
+2. 第一次引用关键节点时，在名称后用括号补充它对应的节点 id，例如：Felix Gao（id: usr_felix）。
+3. 说明证据关系时，用可读名称描述结论，并在同一个括号里补充对应三元组，格式为：名称 A -> 关系 -> 名称 B；ids: id_a -> relation -> id_b。
+4. 最终答案禁止输出只有 id 的“关键证据节点”列表；如果需要列证据，请写成“可读名称（id: ...）- 证据三元组：...”。
+5. 用中文回答，保持简洁，但每个结论都要能追溯到节点 id 和三元组。`;
 
 function applyQuestionExample(exampleId: string) {
   const example = questionExamples.find((item) => item.id === exampleId);
   if (!example) return;
   selectedQuestionExample.value = example.id;
   question.value = example.question;
+}
+
+function buildPromptQuestion(rawQuestion: string) {
+  return `${rawQuestion.trim()}\n\n${readableAnswerInstruction}`;
+}
+
+function formatAnswerWithNodeNames(answer: string) {
+  const lines = answer.split(/\r?\n/);
+  const formatted: string[] = [];
+  let inEvidenceNodeList = false;
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (/^(关键证据节点|Key evidence nodes)\s*[：:]?\s*$/i.test(trimmed)) {
+      inEvidenceNodeList = true;
+      formatted.push(line.replace(trimmed, "关键证据节点与证据三元组："));
+      return;
+    }
+
+    if (inEvidenceNodeList) {
+      if (!trimmed) {
+        formatted.push(line);
+        return;
+      }
+
+      const bulletMatch = trimmed.match(/^[-*]\s*`?([^`\s]+)`?\s*$/);
+      if (bulletMatch) {
+        const id = bulletMatch[1];
+        const indentation = line.match(/^\s*/)?.[0] ?? "";
+        const evidence = triplesForNode(id)
+          .slice(0, 2)
+          .map(formatReadableTriple)
+          .join("；");
+        formatted.push(`${indentation}- ${formatNodeReference(id)}${evidence ? ` - 证据三元组：${evidence}` : ""}`);
+        return;
+      }
+
+      if (!/^[-*]\s*/.test(trimmed)) inEvidenceNodeList = false;
+    }
+
+    formatted.push(line);
+  });
+
+  return replaceKnownNodeIds(formatted.join("\n"));
+}
+
+function triplesForNode(id: string) {
+  return readableTriples.value.filter((triple) => triple.source === id || triple.target === id);
+}
+
+function formatReadableTriple(triple: { source: string; relation: string; target: string }) {
+  return `${formatNodeReference(triple.source)} -> ${triple.relation} -> ${formatNodeReference(triple.target)}；ids: ${triple.source} -> ${triple.relation} -> ${triple.target}`;
+}
+
+function formatNodeReference(id: string) {
+  const name = nodeNameById.value.get(id);
+  return name && name !== id ? `${name}（id: ${id}）` : `id: ${id}`;
+}
+
+function replaceKnownNodeIds(answer: string) {
+  return answer
+    .replace(/（`([^`]+)`）/g, (_match, id: string) => (nodeNameById.value.has(id) ? `（id: ${id}）` : `（${id}）`))
+    .replace(/`([^`]+)`/g, (match, id: string) => (nodeNameById.value.has(id) ? formatNodeReference(id) : match));
 }
 
 async function runAsk() {
@@ -84,7 +183,7 @@ async function runAsk() {
   try {
     const result = await askGraph({
       graphId: localGraphId.value.trim(),
-      question: question.value.trim(),
+      question: buildPromptQuestion(question.value),
       topK: topK.value,
       mode: mode.value,
       maxSteps: maxSteps.value
@@ -149,9 +248,9 @@ async function runAsk() {
           <h3>Answer</h3>
           <span class="chip">{{ response?.retrieval?.mode ?? mode }}</span>
         </div>
-        <MarkdownRenderer v-if="response?.answer" class="answer-text" :content="response.answer" />
+        <MarkdownRenderer v-if="displayAnswer" class="answer-text" :content="displayAnswer" />
         <div v-else class="empty-state">
-          提交问题后展示 answer，没有 LLM 时，后端会返回确定性证据摘要
+          提交问题后将在这里显示回答
         </div>
       </article>
 
@@ -165,7 +264,7 @@ async function runAsk() {
         </div>
 
         <div v-if="!response" class="empty-state">
-          证据区展示后端 retrieval 字段
+          运行问答后将在这里显示检索到的证据
         </div>
         <ul v-else-if="activeTab === 'sub'" class="code-list">
           <li v-for="(item, index) in response.sub_questions" :key="index">{{ item["sub-question"] }}</li>

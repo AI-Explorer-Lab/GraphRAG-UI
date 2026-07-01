@@ -128,7 +128,7 @@ function handleAskFromText(question: string) {
       />
 
       <SubgraphPage
-        v-if="activePage === 'subgraph'"
+        v-show="activePage === 'subgraph'"
         :graph-id="graphId"
         :graph-ids="graphOptions"
         :center-node-id="subgraphCenterNodeId"
