@@ -372,13 +372,34 @@ async function toggleStageFullscreen() {
 }
 
 function selectNode(node: SubgraphNode) {
+  if (selectedNode.value?.id === node.id) {
+    selectedNode.value = null;
+    selectedEdge.value = null;
+    return;
+  }
   selectedNode.value = node;
   selectedEdge.value = null;
 }
 
 function selectEdge(edge: SubgraphEdge) {
+  if (selectedEdge.value && isSameEdge(selectedEdge.value, edge)) {
+    selectedEdge.value = null;
+    selectedNode.value = null;
+    return;
+  }
   selectedEdge.value = edge;
   selectedNode.value = null;
+}
+
+function isSameEdge(left: SubgraphEdge, right: SubgraphEdge) {
+  if (left === right) return true;
+  return (
+    left.source === right.source &&
+    left.target === right.target &&
+    left.relation === right.relation &&
+    JSON.stringify(left.relation_properties) === JSON.stringify(right.relation_properties) &&
+    left.evidence_refs.join("|") === right.evidence_refs.join("|")
+  );
 }
 
 function formatValue(value: unknown) {

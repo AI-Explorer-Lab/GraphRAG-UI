@@ -506,7 +506,6 @@ function beginNodeDrag(event: PointerEvent, node: SubgraphNode) {
   event.stopPropagation();
   (event.currentTarget as SVGGElement).setPointerCapture(event.pointerId);
   dragState.value = { type: "node", id: node.id };
-  emit("selectNode", node);
 }
 
 function beginPan(event: PointerEvent) {
@@ -678,6 +677,11 @@ function resetLayout() {
       <g class="graph-world" :transform="graphTransform()">
         <g class="edge-layer">
           <g v-for="(edge, index) in visibleEdges" :key="`${edge.source}-${edge.target}-${edge.relation}-${index}`">
+            <path
+              :d="edgePath(edge, index)"
+              class="graph-edge-hit"
+              @click.stop="emit('selectEdge', edge)"
+            />
             <path
               :d="edgePath(edge, index)"
               class="graph-edge"

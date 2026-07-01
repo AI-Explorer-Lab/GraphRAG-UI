@@ -1325,6 +1325,15 @@ pre {
     filter 120ms ease-out;
 }
 
+.graph-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-width: 14;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
 .graph-edge:hover,
 .graph-edge.selected {
   opacity: 1;
