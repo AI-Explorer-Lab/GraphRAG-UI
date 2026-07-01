@@ -846,6 +846,33 @@ pre {
   padding: 18px;
 }
 
+.graph-stage.fullscreen,
+.graph-stage:fullscreen {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  padding: 18px;
+  overflow: hidden;
+  background: oklch(0.13 0.01 82);
+  border: 0;
+  border-radius: 0;
+}
+
+.graph-stage.fullscreen .stage-header,
+.graph-stage:fullscreen .stage-header {
+  flex: 0 0 auto;
+}
+
+.graph-stage.fullscreen .filter-dock,
+.graph-stage:fullscreen .filter-dock {
+  flex: 0 0 auto;
+}
+
 .stage-header,
 .inspector-heading {
   display: flex;
@@ -1011,18 +1038,14 @@ pre {
   border-radius: 12px;
 }
 
-.graph-canvas.fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  width: 100vw;
-  min-height: 100vh;
-  border: 0;
-  border-radius: 0;
-}
-
 .graph-canvas.panning {
   cursor: grabbing;
+}
+
+.graph-stage.fullscreen .graph-canvas,
+.graph-stage:fullscreen .graph-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .graph-control-strip {
@@ -1244,9 +1267,10 @@ pre {
   touch-action: none;
 }
 
-.graph-canvas.fullscreen svg {
-  height: 100vh;
-  min-height: 100vh;
+.graph-stage.fullscreen .graph-canvas svg,
+.graph-stage:fullscreen .graph-canvas svg {
+  height: 100%;
+  min-height: 520px;
 }
 
 .graph-empty {
@@ -1282,9 +1306,9 @@ pre {
 
 .graph-edge {
   fill: none;
-  opacity: 0.82;
+  opacity: 0.88;
   stroke-linecap: round;
-  stroke-width: 2.1;
+  stroke-width: 2.35;
   cursor: pointer;
   pointer-events: stroke;
   transition:
@@ -1296,12 +1320,47 @@ pre {
 .graph-edge:hover,
 .graph-edge.selected {
   opacity: 1;
-  stroke-width: 3;
+  stroke-width: 3.2;
   filter: drop-shadow(0 0 8px oklch(0.77 0.14 78 / 0.34));
 }
 
 .graph-edge.dimmed {
   opacity: 0.12;
+}
+
+.graph-edge-arrow,
+.graph-edge-flow {
+  cursor: pointer;
+  stroke: oklch(0.08 0.01 82 / 0.86);
+  stroke-linejoin: round;
+  stroke-width: 2;
+  transition:
+    opacity 120ms ease-out,
+    filter 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.graph-edge-arrow {
+  opacity: 0.96;
+  filter: drop-shadow(0 0 6px oklch(0.05 0.01 82 / 0.6));
+}
+
+.graph-edge-flow {
+  opacity: 0.58;
+  stroke-width: 1.6;
+}
+
+.graph-edge-arrow:hover,
+.graph-edge-arrow.selected,
+.graph-edge-flow:hover,
+.graph-edge-flow.selected {
+  opacity: 1;
+  filter: drop-shadow(0 0 9px oklch(0.77 0.14 78 / 0.44));
+}
+
+.graph-edge-arrow.dimmed,
+.graph-edge-flow.dimmed {
+  opacity: 0.1;
 }
 
 .edge-label {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { fetchSubgraph } from "../api/client";
 import type { SubgraphEdge, SubgraphNode, SubgraphResponse } from "../types/api";
 import GraphCanvas from "./GraphCanvas.vue";
@@ -29,10 +29,14 @@ const selectedNode = ref<SubgraphNode | null>(null);
 const selectedEdge = ref<SubgraphEdge | null>(null);
 const lastSearch = ref<{ nodeId: string; found: boolean } | null>(null);
 const requestSerial = ref(0);
+const graphStageRef = ref<HTMLElement | null>(null);
+const nativeStageFullscreen = ref(false);
+const fallbackStageFullscreen = ref(false);
 
 const graphOptions = computed(() => {
   return [...(props.graphIds ?? [])].sort();
 });
+const isStageFullscreen = computed(() => nativeStageFullscreen.value || fallbackStageFullscreen.value);
 
 const layerModes: Array<{ value: LayerMode; label: string; description: string }> = [
   { value: "level1_attributes", label: "L1 属性层", description: "实体属性与字段信息" },
@@ -63,6 +67,14 @@ watch(
   },
   { immediate: true }
 );
+
+onMounted(() => {
+  document.addEventListener("fullscreenchange", syncStageFullscreenState);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("fullscreenchange", syncStageFullscreenState);
+});
 
 const relationCounts = computed(() => {
   const counts = new Map<string, number>();
@@ -306,6 +318,29 @@ function resetView() {
   reloadCurrentGraph();
 }
 
+function syncStageFullscreenState() {
+  nativeStageFullscreen.value = document.fullscreenElement === graphStageRef.value;
+  if (nativeStageFullscreen.value) fallbackStageFullscreen.value = false;
+}
+
+async function toggleStageFullscreen() {
+  const stage = graphStageRef.value;
+  if (!stage) return;
+  if (nativeStageFullscreen.value) {
+    await document.exitFullscreen();
+    return;
+  }
+  if (fallbackStageFullscreen.value) {
+    fallbackStageFullscreen.value = false;
+    return;
+  }
+  try {
+    await stage.requestFullscreen();
+  } catch {
+    fallbackStageFullscreen.value = true;
+  }
+}
+
 function selectNode(node: SubgraphNode) {
   selectedNode.value = node;
   selectedEdge.value = null;
@@ -405,7 +440,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
     </div>
 
     <div class="subgraph-layout">
-      <main class="graph-stage">
+      <main ref="graphStageRef" class="graph-stage" :class="{ fullscreen: isStageFullscreen }">
         <div class="stage-header">
           <div>
             <h3>Neighborhood Graph</h3>
@@ -484,10 +519,12 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
           :center-id="activeCenterNodeId"
           :selected-id="selectedNode?.id"
           :selected-edge="selectedEdge"
+          :fullscreen="isStageFullscreen"
           @select-node="selectNode"
           @select-edge="selectEdge"
           @toggle-label="toggleLabel"
           @toggle-relation="toggleRelation"
+          @toggle-fullscreen="toggleStageFullscreen"
         />
 
       </main>

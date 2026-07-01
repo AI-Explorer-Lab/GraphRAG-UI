@@ -1,8 +1,9 @@
 ﻿<script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { SubgraphEdge, SubgraphNode } from "../types/api";
 
 type Point = { x: number; y: number };
+type EdgeGeometry = { from: Point; control: Point; to: Point };
 type DragState =
   | { type: "node"; id: string }
   | { type: "pan"; startX: number; startY: number; originX: number; originY: number }
@@ -56,6 +57,7 @@ const props = defineProps<{
   centerId?: string;
   selectedId?: string;
   selectedEdge?: SubgraphEdge | null;
+  fullscreen?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -63,15 +65,13 @@ const emit = defineEmits<{
   selectEdge: [edge: SubgraphEdge];
   toggleLabel: [label: string];
   toggleRelation: [relation: string];
+  toggleFullscreen: [];
 }>();
 
-const graphFrameRef = ref<HTMLElement | null>(null);
 const svgRef = ref<SVGSVGElement | null>(null);
 const positions = ref<Record<string, Point>>({});
 const dragState = ref<DragState>(null);
 const viewport = ref({ x: 0, y: 0, scale: 1 });
-const nativeFullscreen = ref(false);
-const fallbackFullscreen = ref(false);
 
 const hiddenLabelSet = computed(() => new Set(props.hiddenLabels ?? []));
 const drawableNodes = computed(() => props.nodes.filter((node) => !hiddenLabelSet.value.has(node.label)));
@@ -102,7 +102,9 @@ const visibleNodes = computed(() => {
 });
 
 const nodeById = computed(() => new Map(props.nodes.map((node) => [node.id, node])));
-const isFullscreen = computed(() => nativeFullscreen.value || fallbackFullscreen.value);
+const isFullscreen = computed(() => Boolean(props.fullscreen));
+const hasActiveCenter = computed(() => Boolean(props.centerId && nodeById.value.has(props.centerId)));
+const canvasModeLabel = computed(() => (hasActiveCenter.value ? "Explore" : "Overview"));
 
 const nodeLegend = computed(() => {
   const counts = new Map<string, number>();
@@ -135,9 +137,11 @@ const degreeByNode = computed(() => {
   return degrees;
 });
 
-const depthByNode = computed(() => computeDepths(visibleNodes.value, visibleEdges.value));
+const depthByNode = computed(() =>
+  hasActiveCenter.value ? computeDepths(visibleNodes.value, visibleEdges.value) : new Map<string, number>()
+);
 const maxVisibleDepth = computed(() =>
-  Math.max(0, ...visibleNodes.value.map((node) => Math.min(depthByNode.value.get(node.id) ?? 3, 3)))
+  hasActiveCenter.value ? Math.max(0, ...visibleNodes.value.map((node) => Math.min(depthByNode.value.get(node.id) ?? 3, 3))) : 0
 );
 
 const neighborIds = computed(() => {
@@ -167,21 +171,13 @@ const layoutSignature = computed(() =>
 watch(
   layoutSignature,
   () => {
-    positions.value = computeHopRingLayout(props.nodes, props.edges);
+    positions.value = computeInitialLayout(props.nodes, props.edges);
     viewport.value = { x: 0, y: 0, scale: 1 };
   },
   { immediate: true }
 );
 
-onMounted(() => {
-  document.addEventListener("fullscreenchange", syncFullscreenState);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("fullscreenchange", syncFullscreenState);
-});
-
-function sortWithOrder(entries: Array<[string, number]>, order: string[]) {
+function sortWithOrder<T>(entries: Array<[string, T]>, order: string[]) {
   return entries.sort((a, b) => {
     const left = order.indexOf(a[0]);
     const right = order.indexOf(b[0]);
@@ -191,12 +187,16 @@ function sortWithOrder(entries: Array<[string, number]>, order: string[]) {
   });
 }
 
-function computeHopRingLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+function computeInitialLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
   if (!nodes.length) return {};
-  return seedPositions(nodes, edges);
+  return hasActiveCenter.value ? computeHopRingLayout(nodes, edges) : computeOverviewLayout(nodes, edges);
 }
 
-function seedPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+function computeHopRingLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+  return seedHopPositions(nodes, edges);
+}
+
+function seedHopPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
   const depths = computeDepths(nodes, edges);
   const layoutDegrees = computeDegrees(edges);
   const groups = new Map<number, SubgraphNode[]>();
@@ -236,6 +236,49 @@ function seedPositions(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
   return map;
 }
 
+function computeOverviewLayout(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
+  const layoutDegrees = computeDegrees(edges);
+  const groups = new Map<string, SubgraphNode[]>();
+  nodes.forEach((node) => groups.set(node.label, [...(groups.get(node.label) ?? []), node]));
+
+  const orderedGroups = sortWithOrder(Array.from(groups.entries()), NODE_LABEL_ORDER);
+  const labelCount = orderedGroups.length;
+  const map: Record<string, Point> = {};
+
+  orderedGroups.forEach(([label, group], groupIndex) => {
+    const sorted = group
+      .slice()
+      .sort((a, b) => (layoutDegrees.get(b.id) ?? 0) - (layoutDegrees.get(a.id) ?? 0) || a.id.localeCompare(b.id));
+    const ring = overviewRing(label, groupIndex, labelCount);
+    const start = -Math.PI / 2 + groupIndex * 0.22;
+
+    if (sorted.length === 1 && labelCount === 1) {
+      map[sorted[0].id] = { ...CENTER };
+      return;
+    }
+
+    sorted.forEach((node, index) => {
+      const angle = start + (Math.PI * 2 * index) / Math.max(sorted.length, 1);
+      const jitter = ((hashString(node.id) % 19) - 9) * 1.8;
+      map[node.id] = {
+        x: CENTER.x + Math.cos(angle) * (ring.rx + jitter),
+        y: CENTER.y + Math.sin(angle) * (ring.ry + jitter * 0.45)
+      };
+    });
+  });
+
+  return map;
+}
+
+function overviewRing(label: string, groupIndex: number, labelCount: number) {
+  if (label === "community") return { rx: labelCount > 1 ? 165 : 410, ry: labelCount > 1 ? 108 : 270 };
+  if (label === "keyword") return { rx: labelCount > 1 ? 332 : 420, ry: labelCount > 1 ? 216 : 276 };
+  if (label === "attribute") return { rx: labelCount > 1 ? 552 : 430, ry: labelCount > 1 ? 338 : 280 };
+  if (label === "entity" && labelCount > 1) return { rx: 284, ry: 176 };
+  const base = 360 + groupIndex * 72;
+  return { rx: Math.min(base, 548), ry: Math.min(226 + groupIndex * 46, 338) };
+}
+
 function computeDegrees(edges: SubgraphEdge[]) {
   const degrees = new Map<string, number>();
   edges.forEach((edge) => {
@@ -256,7 +299,7 @@ function computeDepths(nodes: SubgraphNode[], edges: SubgraphEdge[]) {
     adjacency.set(edge.target, [...(adjacency.get(edge.target) ?? []), edge.source]);
   });
 
-  const start = props.centerId && idSet.has(props.centerId) ? props.centerId : nodes[0]?.id;
+  const start = props.centerId && idSet.has(props.centerId) ? props.centerId : "";
   if (!start) return map;
 
   const queue = [start];
@@ -361,22 +404,76 @@ function shouldShowLabel(node: SubgraphNode) {
   return (degreeByNode.value.get(node.id) ?? 0) >= 5 && node.label !== "attribute";
 }
 
-function edgePath(edge: SubgraphEdge, index: number) {
-  const from = point(edge.source);
-  const to = point(edge.target);
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
+function edgeGeometry(edge: SubgraphEdge, index: number): EdgeGeometry {
+  const sourceCenter = point(edge.source);
+  const targetCenter = point(edge.target);
+  const sourceNode = nodeById.value.get(edge.source);
+  const targetNode = nodeById.value.get(edge.target);
+  const dx = targetCenter.x - sourceCenter.x;
+  const dy = targetCenter.y - sourceCenter.y;
   const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+  const unitX = dx / distance;
+  const unitY = dy / distance;
+  const sourceGap = (sourceNode ? radiusFor(sourceNode) : 10) + 5;
+  const targetGap = (targetNode ? radiusFor(targetNode) : 10) + 13;
+  const from = {
+    x: sourceCenter.x + unitX * sourceGap,
+    y: sourceCenter.y + unitY * sourceGap
+  };
+  const to = {
+    x: targetCenter.x - unitX * targetGap,
+    y: targetCenter.y - unitY * targetGap
+  };
   const bend = ((hashString(`${edge.source}:${edge.target}:${edge.relation}:${index}`) % 7) - 3) * 7;
   const midX = (from.x + to.x) / 2 - (dy / distance) * bend;
   const midY = (from.y + to.y) / 2 + (dx / distance) * bend;
-  return `M ${from.x} ${from.y} Q ${midX} ${midY} ${to.x} ${to.y}`;
+  return { from, control: { x: midX, y: midY }, to };
 }
 
-function edgeMidpoint(edge: SubgraphEdge) {
-  const from = point(edge.source);
-  const to = point(edge.target);
-  return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+function edgePath(edge: SubgraphEdge, index: number) {
+  const geometry = edgeGeometry(edge, index);
+  return `M ${geometry.from.x} ${geometry.from.y} Q ${geometry.control.x} ${geometry.control.y} ${geometry.to.x} ${geometry.to.y}`;
+}
+
+function edgePoint(edge: SubgraphEdge, index: number, t: number) {
+  const geometry = edgeGeometry(edge, index);
+  const inverse = 1 - t;
+  return {
+    x: inverse * inverse * geometry.from.x + 2 * inverse * t * geometry.control.x + t * t * geometry.to.x,
+    y: inverse * inverse * geometry.from.y + 2 * inverse * t * geometry.control.y + t * t * geometry.to.y
+  };
+}
+
+function edgeTangent(edge: SubgraphEdge, index: number, t: number) {
+  const geometry = edgeGeometry(edge, index);
+  const inverse = 1 - t;
+  return {
+    x: 2 * inverse * (geometry.control.x - geometry.from.x) + 2 * t * (geometry.to.x - geometry.control.x),
+    y: 2 * inverse * (geometry.control.y - geometry.from.y) + 2 * t * (geometry.to.y - geometry.control.y)
+  };
+}
+
+function edgeArrowPoints(edge: SubgraphEdge, index: number, t = 1, length = 16, width = 8) {
+  const tip = edgePoint(edge, index, t);
+  const tangent = edgeTangent(edge, index, t);
+  const distance = Math.max(Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y), 1);
+  const unitX = tangent.x / distance;
+  const unitY = tangent.y / distance;
+  const base = {
+    x: tip.x - unitX * length,
+    y: tip.y - unitY * length
+  };
+  const normalX = -unitY;
+  const normalY = unitX;
+  return [
+    `${tip.x},${tip.y}`,
+    `${base.x + normalX * width},${base.y + normalY * width}`,
+    `${base.x - normalX * width},${base.y - normalY * width}`
+  ].join(" ");
+}
+
+function edgeMidpoint(edge: SubgraphEdge, index: number) {
+  return edgePoint(edge, index, 0.5);
 }
 
 function isNodeDimmed(node: SubgraphNode) {
@@ -478,43 +575,21 @@ function resetViewport() {
 }
 
 function resetLayout() {
-  positions.value = computeHopRingLayout(props.nodes, props.edges);
+  positions.value = computeInitialLayout(props.nodes, props.edges);
   resetViewport();
 }
 
-function syncFullscreenState() {
-  nativeFullscreen.value = document.fullscreenElement === graphFrameRef.value;
-  if (nativeFullscreen.value) fallbackFullscreen.value = false;
-}
-
-async function toggleFullscreen() {
-  const frame = graphFrameRef.value;
-  if (!frame) return;
-  if (nativeFullscreen.value) {
-    await document.exitFullscreen();
-    return;
-  }
-  if (fallbackFullscreen.value) {
-    fallbackFullscreen.value = false;
-    return;
-  }
-  try {
-    await frame.requestFullscreen();
-  } catch {
-    fallbackFullscreen.value = true;
-  }
-}
 </script>
 
 <template>
-  <div ref="graphFrameRef" class="graph-canvas" :class="{ panning: dragState?.type === 'pan', fullscreen: isFullscreen }">
+  <div class="graph-canvas" :class="{ panning: dragState?.type === 'pan', fullscreen: isFullscreen }">
     <div class="graph-control-strip">
       <div class="graph-control-copy">
-        <strong>Explore</strong>
+        <strong>{{ canvasModeLabel }}</strong>
         <span>{{ visibleNodes.length }} nodes / {{ visibleEdges.length }} edges</span>
       </div>
       <div class="graph-control-actions">
-        <button type="button" class="icon-control" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="toggleFullscreen">
+        <button type="button" class="icon-control" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="emit('toggleFullscreen')">
           {{ isFullscreen ? "Esc" : "⛶" }}
         </button>
         <button type="button" title="Zoom out" @click="zoomBy(0.86)">-</button>
@@ -589,13 +664,7 @@ async function toggleFullscreen() {
       @wheel.prevent="onWheel"
       @dblclick="resetViewport"
     >
-      <defs>
-        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L0,6 L9,3 z" fill="oklch(0.62 0.03 86 / 0.74)" />
-        </marker>
-      </defs>
-
-      <g class="ring-layer" aria-hidden="true">
+      <g v-if="hasActiveCenter" class="ring-layer" aria-hidden="true">
         <g :transform="graphTransform()">
           <template v-for="depth in [1, 2, 3]" :key="depth">
             <ellipse v-if="maxVisibleDepth >= depth" :cx="CENTER.x" :cy="CENTER.y" :rx="HOP_RINGS[depth].rx" :ry="HOP_RINGS[depth].ry" />
@@ -614,15 +683,28 @@ async function toggleFullscreen() {
               class="graph-edge"
               :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
               :stroke="edgeColor(edge)"
-              marker-end="url(#arrow)"
               @click.stop="emit('selectEdge', edge)"
             >
               <title>{{ edge.source }} -> {{ edge.target }} / {{ edge.relation }}</title>
             </path>
+            <polygon
+              class="graph-edge-flow"
+              :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
+              :points="edgeArrowPoints(edge, index, 0.62, 10, 5)"
+              :fill="edgeColor(edge)"
+              @click.stop="emit('selectEdge', edge)"
+            />
+            <polygon
+              class="graph-edge-arrow"
+              :class="{ selected: selectedEdge === edge, dimmed: isEdgeDimmed(edge) }"
+              :points="edgeArrowPoints(edge, index)"
+              :fill="edgeColor(edge)"
+              @click.stop="emit('selectEdge', edge)"
+            />
             <text
               v-if="selectedEdge === edge"
-              :x="edgeMidpoint(edge).x"
-              :y="edgeMidpoint(edge).y - 8"
+              :x="edgeMidpoint(edge, index).x"
+              :y="edgeMidpoint(edge, index).y - 8"
               class="edge-label selected"
             >
               {{ edge.relation }}
