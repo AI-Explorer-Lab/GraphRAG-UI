@@ -17,8 +17,10 @@ const propertyLabels: Record<string, string> = {
   description: "说明",
   domain: "业务域",
   entity_class: "实体类型",
+  id: "节点 ID",
   name: "名称",
   owner: "负责人",
+  raw_properties: "原始属性",
   reason: "关系说明",
   risk_level: "风险等级",
   schema_type: "类型",
@@ -382,7 +384,7 @@ function selectEdge(edge: SubgraphEdge) {
 function formatValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
   if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
   return String(value);
 }
 

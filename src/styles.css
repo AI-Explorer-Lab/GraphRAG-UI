@@ -700,13 +700,18 @@ select:focus {
 }
 
 .detail-list div {
+  display: grid;
   align-items: flex-start;
+  justify-content: stretch;
+  gap: 6px;
 }
 
 .detail-list dd {
-  max-width: 58%;
+  max-width: 100%;
   overflow-wrap: anywhere;
-  text-align: right;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 dt {
