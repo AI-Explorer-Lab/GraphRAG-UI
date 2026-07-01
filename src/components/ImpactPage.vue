@@ -85,6 +85,12 @@ const impactSourceLabel = computed(() => {
   return result.value.llm_called ? "llm" : "业务节点";
 });
 const impactGraphNodes = computed(() => {
+  const visibleNodeIds = visibleImpactNodeIds();
+  const backendNodes = result.value?.impact_subgraph?.nodes ?? [];
+  if (backendNodes.length) {
+    return backendNodes.filter((node) => visibleNodeIds.has(node.id));
+  }
+
   const nodes = new Map<string, SubgraphNode>();
   visibleEvidencePaths.value.forEach((path) => {
     path.path.forEach((nodeId) => {
@@ -105,13 +111,19 @@ const impactGraphNodes = computed(() => {
   return [...nodes.values()];
 });
 const impactGraphEdges = computed(() => {
+  const backendEdges = result.value?.impact_subgraph?.edges ?? [];
+  if (backendEdges.length) {
+    const visibleEdges = visibleImpactEdgeKeys();
+    return backendEdges.filter((edge) => visibleEdges.has(edgeKey(edge.source, edge.target, edge.relation)));
+  }
+
   const edges = new Map<string, SubgraphEdge>();
   visibleEvidencePaths.value.forEach((path) => {
     path.relations.forEach((relationName, index) => {
       const sourceNode = path.path[index];
       const targetNode = path.path[index + 1];
       if (!sourceNode || !targetNode) return;
-      const key = `${sourceNode}->${targetNode}:${relationName}`;
+      const key = edgeKey(sourceNode, targetNode, relationName);
       if (edges.has(key)) return;
       edges.set(key, {
         source: sourceNode,
@@ -160,6 +172,31 @@ function isBusinessPath(path: ImpactPath) {
 
 function sortedLastNodes(paths: ImpactPath[]) {
   return [...new Set(paths.map((path) => path.path[path.path.length - 1]).filter(Boolean))].sort();
+}
+
+function visibleImpactNodeIds() {
+  const ids = new Set<string>();
+  visibleEvidencePaths.value.forEach((path) => {
+    path.path.forEach((nodeId) => ids.add(nodeId));
+  });
+  return ids;
+}
+
+function visibleImpactEdgeKeys() {
+  const keys = new Set<string>();
+  visibleEvidencePaths.value.forEach((path) => {
+    path.relations.forEach((relationName, index) => {
+      const sourceNode = path.path[index];
+      const targetNode = path.path[index + 1];
+      if (!sourceNode || !targetNode) return;
+      keys.add(edgeKey(sourceNode, targetNode, relationName));
+    });
+  });
+  return keys;
+}
+
+function edgeKey(sourceNode: string, targetNode: string, relationName: string) {
+  return `${sourceNode}->${targetNode}:${relationName}`;
 }
 
 function prettifyNodeId(nodeId: string) {

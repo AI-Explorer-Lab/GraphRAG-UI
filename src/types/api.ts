@@ -95,6 +95,7 @@ export interface ImpactResponse {
   answer?: string;
   answer_source?: string;
   llm_called?: boolean;
+  impact_subgraph?: SubgraphResponse;
   direct_impacts: string[];
   indirect_impacts: string[];
   target_impact: string[];
