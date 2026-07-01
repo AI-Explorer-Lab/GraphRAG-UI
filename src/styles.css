@@ -216,7 +216,7 @@ label {
   display: grid;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -276,7 +276,7 @@ select:focus {
   background: oklch(0.32 0.02 82);
   border: 1px solid var(--line);
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -345,7 +345,7 @@ select:focus {
 .panel-kicker {
   margin-bottom: 16px;
   color: var(--amber);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -662,7 +662,7 @@ select:focus {
   border: 1px solid var(--line);
   border-radius: 9px;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .check-list li.ok {
@@ -699,16 +699,26 @@ select:focus {
   gap: 4px;
 }
 
+.detail-list div {
+  align-items: flex-start;
+}
+
+.detail-list dd {
+  max-width: 58%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 dd {
   margin: 0;
   color: var(--text);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 pre {
@@ -731,6 +741,8 @@ pre {
   place-items: center;
   padding: 24px;
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
   text-align: center;
   background: oklch(0.16 0.01 82);
   border: 1px dashed var(--line);
@@ -779,7 +791,7 @@ pre {
   max-width: 62ch;
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -815,7 +827,7 @@ pre {
   background: oklch(0.16 0.01 82 / 0.72);
   border: 1px solid var(--line);
   border-radius: 10px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -893,7 +905,7 @@ pre {
 .view-pill,
 .filter-chip.compact {
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .graph-metrics span {
@@ -958,20 +970,19 @@ pre {
 
 .filter-group > span {
   color: var(--soft);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 850;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 
 .chip-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
   max-width: 100%;
-  overflow-x: auto;
-  padding-bottom: 3px;
-  scrollbar-width: thin;
+  overflow-x: visible;
+  padding-bottom: 0;
 }
 
 .filter-group.system-relations .chip-row {
@@ -993,8 +1004,8 @@ pre {
 
 .filter-chip.compact {
   gap: 9px;
-  min-height: 31px;
-  padding: 0 9px;
+  min-height: 34px;
+  padding: 0 11px;
 }
 
 .layer-chip {
@@ -1002,14 +1013,14 @@ pre {
   flex: 0 0 auto;
   align-items: center;
   gap: 9px;
-  min-height: 31px;
-  padding: 0 9px;
+  min-height: 34px;
+  padding: 0 11px;
   color: var(--text);
   background: oklch(0.2 0.01 82);
   border: 1px solid var(--line);
   border-radius: 999px;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .filter-chip b,
@@ -1074,7 +1085,7 @@ pre {
 
 .graph-control-copy strong {
   color: var(--amber);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1084,7 +1095,7 @@ pre {
 .graph-control-actions span {
   color: var(--muted);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .graph-control-actions {
@@ -1102,7 +1113,7 @@ pre {
   border: 1px solid var(--line);
   border-radius: 999px;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 850;
 }
 
@@ -1143,14 +1154,14 @@ pre {
   gap: 10px;
   margin: 0 0 10px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
 }
 
 .graph-map-legend h4 span {
   color: var(--muted);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -1166,14 +1177,14 @@ pre {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  padding: 6px 9px;
+  min-height: 34px;
+  padding: 7px 10px;
   background: color-mix(in oklch, var(--legend-color) 9%, oklch(0.2 0.011 82 / 0.86));
   border: 1px solid color-mix(in oklch, var(--legend-color) 34%, oklch(0.5 0.02 82 / 0.62));
   border-radius: 999px;
   color: var(--text);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
   transition:
@@ -1279,6 +1290,7 @@ pre {
 .graph-empty span {
   margin-top: 8px;
   color: var(--muted);
+  font-size: 13px;
 }
 
 .ring-layer ellipse {
@@ -1291,7 +1303,7 @@ pre {
 .ring-layer text {
   fill: oklch(0.62 0.018 82 / 0.65);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.02em;
 }
 
@@ -1357,7 +1369,7 @@ pre {
 .edge-label {
   fill: var(--amber);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 850;
   paint-order: stroke;
   pointer-events: none;
@@ -1405,7 +1417,7 @@ pre {
 .graph-node text {
   fill: var(--text);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 760;
   text-anchor: middle;
   paint-order: stroke;
@@ -1455,7 +1467,7 @@ pre {
   color: oklch(0.18 0.012 80);
   background: var(--cyan);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -1480,12 +1492,12 @@ pre {
 .attribute-list span {
   color: var(--soft);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .attribute-list b {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 760;
   overflow-wrap: anywhere;
 }

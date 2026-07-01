@@ -11,6 +11,34 @@ const systemRelations = ["has", "has_attribute", "member_of", "represents_commun
 const defaultHiddenRelations = ["has", "has_attribute", "member_of", "represents_community", "represented_by", "has_keyword", "represents_entity"];
 const defaultHiddenLabels = ["attribute", "keyword", "community"];
 const nodeLabels = ["entity", "attribute", "keyword", "community"];
+const propertyLabels: Record<string, string> = {
+  attr_key: "属性名",
+  attr_value: "属性值",
+  description: "说明",
+  domain: "业务域",
+  entity_class: "实体类型",
+  name: "名称",
+  owner: "负责人",
+  reason: "关系说明",
+  risk_level: "风险等级",
+  schema_type: "类型",
+  type: "类型",
+  value: "值"
+};
+const relationLabels: Record<string, string> = {
+  has: "包含",
+  has_attribute: "拥有属性",
+  has_keyword: "关联关键词",
+  member_of: "属于社区",
+  owns: "拥有",
+  provides_to: "提供给",
+  represented_by: "由实体代表",
+  represents_community: "代表社区",
+  represents_entity: "代表实体",
+  scores: "评分影响",
+  transfers_to: "资金流向",
+  triggers: "触发"
+};
 
 const props = defineProps<{ graphId: string; graphIds?: string[]; centerNodeId?: string }>();
 const emit = defineEmits<{ updateGraphId: [graphId: string] }>();
@@ -358,6 +386,14 @@ function formatValue(value: unknown) {
   return String(value);
 }
 
+function propertyLabel(key: string) {
+  return propertyLabels[key] ?? key.replace(/_/g, " ");
+}
+
+function relationDisplayName(relation: string) {
+  return relationLabels[relation] ?? relation.replace(/_/g, " ");
+}
+
 function stripInternalId(value: string) {
   if (value.startsWith("attr::")) {
     const parts = value.split("::");
@@ -396,6 +432,27 @@ function displayProperties(node: SubgraphNode) {
     properties.attr_value = stripPropertyPrefix(properties.attr_value, properties.attr_key);
   }
   return properties;
+}
+
+function displayPropertyEntries(node: SubgraphNode) {
+  return Object.entries(displayProperties(node)).map(([key, value]) => ({
+    key,
+    label: propertyLabel(key),
+    value: formatValue(value)
+  }));
+}
+
+function displayRelationPropertyEntries(edge: SubgraphEdge) {
+  return Object.entries(edge.relation_properties).map(([key, value]) => ({
+    key,
+    label: propertyLabel(key),
+    value: formatValue(value)
+  }));
+}
+
+function edgeEndpointLabel(id: string) {
+  const node = nodeById.value.get(id);
+  return node ? nodeDisplayName(node) : stripInternalId(id);
 }
 
 function stripPropertyPrefix(value: unknown, key?: unknown) {
@@ -535,7 +592,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
             <span class="panel-kicker">Inspector</span>
             <h3>节点与证据</h3>
           </div>
-          <span class="chip">backend fields</span>
+          <span class="chip">数据详情</span>
         </div>
 
         <template v-if="selectedNode">
@@ -544,10 +601,10 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
             <h4>{{ nodeDisplayName(selectedNode) }}</h4>
             <p class="muted-copy">{{ displayNodeId(selectedNode) }}</p>
             <dl class="metadata-list compact">
-              <div><dt>level</dt><dd>{{ selectedNode.level }}</dd></div>
-              <div><dt>risk_level</dt><dd>{{ formatValue(selectedNode.properties?.risk_level) }}</dd></div>
-              <div><dt>entity_class</dt><dd>{{ formatValue(selectedNode.properties?.entity_class ?? selectedNode.properties?.type) }}</dd></div>
-              <div><dt>attributes</dt><dd>{{ selectedNodeAttributes.length }}</dd></div>
+              <div><dt>层级</dt><dd>{{ selectedNode.level }}</dd></div>
+              <div><dt>风险等级</dt><dd>{{ formatValue(selectedNode.properties?.risk_level) }}</dd></div>
+              <div><dt>实体类型</dt><dd>{{ formatValue(selectedNode.properties?.entity_class ?? selectedNode.properties?.type) }}</dd></div>
+              <div><dt>关联属性</dt><dd>{{ selectedNodeAttributes.length }}</dd></div>
             </dl>
           </section>
 
@@ -562,27 +619,37 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
           </section>
 
           <section class="inspector-section">
-            <h4>properties</h4>
-            <pre>{{ JSON.stringify(displayProperties(selectedNode), null, 2) }}</pre>
+            <h4>节点详情</h4>
+            <dl class="metadata-list compact detail-list">
+              <div v-for="entry in displayPropertyEntries(selectedNode)" :key="entry.key">
+                <dt>{{ entry.label }}</dt>
+                <dd>{{ entry.value }}</dd>
+              </div>
+            </dl>
           </section>
         </template>
 
         <template v-else-if="selectedEdge">
           <section class="inspector-section">
-            <span class="relation-chip">{{ selectedEdge.relation }}</span>
-            <h4>{{ selectedEdge.source }} -> {{ selectedEdge.target }}</h4>
+            <span class="relation-chip">{{ relationDisplayName(selectedEdge.relation) }}</span>
+            <h4>{{ edgeEndpointLabel(selectedEdge.source) }} -> {{ edgeEndpointLabel(selectedEdge.target) }}</h4>
             <dl class="metadata-list compact">
-              <div><dt>evidence_refs</dt><dd>{{ selectedEdge.evidence_refs.length }}</dd></div>
+              <div><dt>证据引用</dt><dd>{{ selectedEdge.evidence_refs.length }}</dd></div>
             </dl>
           </section>
 
           <section class="inspector-section">
-            <h4>relation_properties</h4>
-            <pre>{{ JSON.stringify(selectedEdge.relation_properties, null, 2) }}</pre>
+            <h4>关系说明</h4>
+            <dl class="metadata-list compact detail-list">
+              <div v-for="entry in displayRelationPropertyEntries(selectedEdge)" :key="entry.key">
+                <dt>{{ entry.label }}</dt>
+                <dd>{{ entry.value }}</dd>
+              </div>
+            </dl>
           </section>
 
           <section v-if="selectedEdge.evidence_refs.length" class="inspector-section">
-            <h4>evidence_refs</h4>
+            <h4>证据引用</h4>
             <ul class="code-list">
               <li v-for="ref in selectedEdge.evidence_refs" :key="ref">{{ ref }}</li>
             </ul>
@@ -590,7 +657,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
         </template>
 
         <div v-else class="empty-state">
-          点击画布中的节点或边，查看后端返回的 properties、relation_properties 和 evidence_refs
+          点击图中的节点或关系线，查看节点详情、关系说明和证据引用
         </div>
       </aside>
     </div>
