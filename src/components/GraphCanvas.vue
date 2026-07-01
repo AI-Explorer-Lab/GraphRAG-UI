@@ -369,8 +369,32 @@ function nodeDisplayName(node: SubgraphNode) {
     const value = stripPropertyPrefix(node.properties?.attr_value ?? node.properties?.value ?? node.properties?.name, node.properties?.attr_key);
     if (value) return value;
   }
+  if (node.label === "community") return communityDisplayName(node);
   const name = stripPropertyPrefix(node.properties?.name, node.properties?.attr_key);
   return name || node.display_id || stripInternalId(node.id);
+}
+
+function communityDisplayName(node: SubgraphNode) {
+  const representative = typeof node.properties?.representative === "string" ? node.properties.representative : "";
+  if (representative) return `${nodeReferenceLabel(representative)}社区`;
+
+  const keywordEntities = Array.isArray(node.properties?.keyword_entities) ? node.properties.keyword_entities : [];
+  const firstKeyword = keywordEntities.find((item): item is string => typeof item === "string");
+  if (firstKeyword) return `${nodeReferenceLabel(firstKeyword)}社区`;
+
+  const name = stripPropertyPrefix(node.properties?.name, node.properties?.attr_key);
+  if (name && !/^community[_-]/i.test(name)) return name;
+  return node.display_id || stripInternalId(node.id);
+}
+
+function nodeReferenceLabel(id: string) {
+  const node = nodeById.value.get(id);
+  if (!node) return stripInternalId(id);
+  if (node.label === "attribute") {
+    const value = stripPropertyPrefix(node.properties?.attr_value ?? node.properties?.value ?? node.properties?.name, node.properties?.attr_key);
+    if (value) return value;
+  }
+  return stripPropertyPrefix(node.properties?.name, node.properties?.attr_key) || node.display_id || stripInternalId(node.id);
 }
 
 function stripInternalId(value: string) {

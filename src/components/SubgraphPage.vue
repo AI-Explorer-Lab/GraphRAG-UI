@@ -18,10 +18,13 @@ const propertyLabels: Record<string, string> = {
   domain: "业务域",
   entity_class: "实体类型",
   id: "节点 ID",
+  keyword_entities: "关键词节点",
+  members: "成员节点",
   name: "名称",
   owner: "负责人",
   raw_properties: "原始属性",
   reason: "关系说明",
+  representative: "代表节点",
   risk_level: "风险等级",
   schema_type: "类型",
   type: "类型",
@@ -434,7 +437,21 @@ function nodeDisplayName(node: SubgraphNode) {
     const value = stripPropertyPrefix(node.properties?.attr_value ?? node.properties?.value ?? node.properties?.name, node.properties?.attr_key);
     if (value) return value;
   }
+  if (node.label === "community") return communityDisplayName(node);
   return stripPropertyPrefix(node.properties?.name, node.properties?.attr_key) || displayNodeId(node);
+}
+
+function communityDisplayName(node: SubgraphNode) {
+  const representative = typeof node.properties?.representative === "string" ? node.properties.representative : "";
+  if (representative) return `${nodeReferenceLabel(representative)}社区`;
+
+  const keywordEntities = Array.isArray(node.properties?.keyword_entities) ? node.properties.keyword_entities : [];
+  const firstKeyword = keywordEntities.find((item): item is string => typeof item === "string");
+  if (firstKeyword) return `${nodeReferenceLabel(firstKeyword)}社区`;
+
+  const name = stripPropertyPrefix(node.properties?.name, node.properties?.attr_key);
+  if (name && !/^community[_-]/i.test(name)) return name;
+  return displayNodeId(node);
 }
 
 function attributeDisplayName(attr: SubgraphNode) {
@@ -458,11 +475,62 @@ function displayProperties(node: SubgraphNode) {
 }
 
 function displayPropertyEntries(node: SubgraphNode) {
+  if (node.label === "community") return displayCommunityPropertyEntries(node);
   return Object.entries(displayProperties(node)).map(([key, value]) => ({
     key,
     label: propertyLabel(key),
     value: formatValue(value)
   }));
+}
+
+function displayCommunityPropertyEntries(node: SubgraphNode) {
+  const properties = displayProperties(node);
+  const entries: Array<{ key: string; label: string; value: string }> = [];
+
+  if (typeof properties.representative === "string" && properties.representative) {
+    entries.push({
+      key: "representative",
+      label: propertyLabel("representative"),
+      value: nodeReferenceLabel(properties.representative)
+    });
+  }
+
+  if (Array.isArray(properties.keyword_entities) && properties.keyword_entities.length) {
+    entries.push({
+      key: "keyword_entities",
+      label: propertyLabel("keyword_entities"),
+      value: formatNodeReferenceList(properties.keyword_entities)
+    });
+  }
+
+  if (Array.isArray(properties.members) && properties.members.length) {
+    entries.push({
+      key: "members",
+      label: propertyLabel("members"),
+      value: formatNodeReferenceList(properties.members)
+    });
+  }
+
+  const description = typeof properties.description === "string" ? properties.description.trim() : "";
+  if (description && !isGeneratedCommunityDescription(description)) {
+    entries.push({
+      key: "description",
+      label: propertyLabel("description"),
+      value: description
+    });
+  }
+
+  Object.entries(properties)
+    .filter(([key]) => !["name", "description", "representative", "keyword_entities", "members"].includes(key))
+    .forEach(([key, value]) => {
+      entries.push({
+        key,
+        label: propertyLabel(key),
+        value: formatValue(value)
+      });
+    });
+
+  return entries;
 }
 
 function displayRelationPropertyEntries(edge: SubgraphEdge) {
@@ -476,6 +544,24 @@ function displayRelationPropertyEntries(edge: SubgraphEdge) {
 function edgeEndpointLabel(id: string) {
   const node = nodeById.value.get(id);
   return node ? nodeDisplayName(node) : stripInternalId(id);
+}
+
+function nodeReferenceLabel(id: string) {
+  const node = nodeById.value.get(id);
+  if (!node) return stripInternalId(id);
+  if (node.label === "attribute") {
+    const value = stripPropertyPrefix(node.properties?.attr_value ?? node.properties?.value ?? node.properties?.name, node.properties?.attr_key);
+    if (value) return value;
+  }
+  return stripPropertyPrefix(node.properties?.name, node.properties?.attr_key) || displayNodeId(node);
+}
+
+function formatNodeReferenceList(value: unknown[]) {
+  return value.map((item) => (typeof item === "string" ? nodeReferenceLabel(item) : formatValue(item))).join("、");
+}
+
+function isGeneratedCommunityDescription(value: string) {
+  return /^Representative:\s*.+;\s*Keywords:\s*.+$/i.test(value.trim());
 }
 
 function stripPropertyPrefix(value: unknown, key?: unknown) {
