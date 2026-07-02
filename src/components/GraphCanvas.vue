@@ -529,16 +529,45 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function screenToWorld(event: PointerEvent | WheelEvent) {
+function clientToSvgPoint(event: PointerEvent | WheelEvent) {
   const svg = svgRef.value;
   if (!svg) return { ...CENTER };
+  const matrix = svg.getScreenCTM();
+  if (matrix) {
+    try {
+      const point = svg.createSVGPoint();
+      point.x = event.clientX;
+      point.y = event.clientY;
+      const transformed = point.matrixTransform(matrix.inverse());
+      return { x: transformed.x, y: transformed.y };
+    } catch {
+      // Fall through to the manual preserveAspectRatio-aware conversion.
+    }
+  }
+
   const rect = svg.getBoundingClientRect();
-  const svgX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
-  const svgY = ((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT;
+  const viewRatio = VIEWBOX_WIDTH / VIEWBOX_HEIGHT;
+  const rectRatio = rect.width / rect.height;
+  const scale = rectRatio > viewRatio ? rect.height / VIEWBOX_HEIGHT : rect.width / VIEWBOX_WIDTH;
+  const renderedWidth = VIEWBOX_WIDTH * scale;
+  const renderedHeight = VIEWBOX_HEIGHT * scale;
+  const offsetX = (rect.width - renderedWidth) / 2;
+  const offsetY = (rect.height - renderedHeight) / 2;
   return {
-    x: (svgX - viewport.value.x) / viewport.value.scale,
-    y: (svgY - viewport.value.y) / viewport.value.scale
+    x: (event.clientX - rect.left - offsetX) / scale,
+    y: (event.clientY - rect.top - offsetY) / scale
   };
+}
+
+function svgToWorld(point: Point) {
+  return {
+    x: (point.x - viewport.value.x) / viewport.value.scale,
+    y: (point.y - viewport.value.y) / viewport.value.scale
+  };
+}
+
+function screenToWorld(event: PointerEvent | WheelEvent) {
+  return svgToWorld(clientToSvgPoint(event));
 }
 
 function beginNodeDrag(event: PointerEvent, node: SubgraphNode) {
@@ -556,10 +585,12 @@ function beginNodeDrag(event: PointerEvent, node: SubgraphNode) {
 
 function beginPan(event: PointerEvent) {
   if (event.button !== 0) return;
+  (event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId);
+  const start = clientToSvgPoint(event);
   dragState.value = {
     type: "pan",
-    startX: event.clientX,
-    startY: event.clientY,
+    startX: start.x,
+    startY: start.y,
     originX: viewport.value.x,
     originY: viewport.value.y
   };
@@ -579,10 +610,11 @@ function onPointerMove(event: PointerEvent) {
     };
     return;
   }
+  const current = clientToSvgPoint(event);
   viewport.value = {
     ...viewport.value,
-    x: drag.originX + event.clientX - drag.startX,
-    y: drag.originY + event.clientY - drag.startY
+    x: drag.originX + current.x - drag.startX,
+    y: drag.originY + current.y - drag.startY
   };
 }
 
@@ -592,17 +624,13 @@ function endDrag() {
 
 function onWheel(event: WheelEvent) {
   const before = screenToWorld(event);
+  const anchor = clientToSvgPoint(event);
   const factor = event.deltaY < 0 ? 1.12 : 0.88;
   const nextScale = clamp(viewport.value.scale * factor, 0.48, 2.6);
-  const svg = svgRef.value;
-  if (!svg) return;
-  const rect = svg.getBoundingClientRect();
-  const svgX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
-  const svgY = ((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT;
   viewport.value = {
     scale: nextScale,
-    x: svgX - before.x * nextScale,
-    y: svgY - before.y * nextScale
+    x: anchor.x - before.x * nextScale,
+    y: anchor.y - before.y * nextScale
   };
 }
 

@@ -372,7 +372,6 @@ async function run() {
         <div class="stage-header">
           <div>
             <h3>影响子图</h3>
-            <p>由 evidence_paths 生成，可拖拽、缩放、点选节点和关系</p>
           </div>
           <span class="chip">{{ impactGraphNodes.length }} nodes / {{ impactGraphEdges.length }} edges</span>
         </div>
