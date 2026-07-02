@@ -149,6 +149,24 @@ const visibleNodes = computed(() => {
   return drawableNodes.value.filter((node) => ids.has(node.id));
 });
 
+const hopByNode = computed(() => {
+  if (!activeCenterNodeId.value) return new Map<string, number>();
+  return computeHopDistances(visibleNodes.value, visibleEdges.value, activeCenterNodeId.value);
+});
+
+const maxVisibleHop = computed(() => {
+  if (!activeCenterNodeId.value || !visibleNodes.value.length) return null;
+  const hops = visibleNodes.value
+    .map((node) => hopByNode.value.get(node.id))
+    .filter((hop): hop is number => typeof hop === "number");
+  return hops.length ? Math.max(0, ...hops) : null;
+});
+
+const selectedNodeHop = computed(() => {
+  if (!selectedNode.value || !activeCenterNodeId.value) return null;
+  return hopByNode.value.get(selectedNode.value.id) ?? null;
+});
+
 const selectedNodeAttributes = computed(() => {
   if (!selectedNode.value || !subgraph.value) return [];
   return subgraph.value.edges
@@ -273,6 +291,33 @@ async function searchNode(explicitNodeId?: string) {
   } finally {
     if (serial === requestSerial.value) loading.value = false;
   }
+}
+
+function computeHopDistances(nodes: SubgraphNode[], edges: SubgraphEdge[], center: string) {
+  const distances = new Map<string, number>();
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  if (!nodeIds.has(center)) return distances;
+
+  const adjacency = new Map<string, string[]>();
+  edges.forEach((edge) => {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+    adjacency.set(edge.source, [...(adjacency.get(edge.source) ?? []), edge.target]);
+    adjacency.set(edge.target, [...(adjacency.get(edge.target) ?? []), edge.source]);
+  });
+
+  const queue = [center];
+  distances.set(center, 0);
+  while (queue.length) {
+    const current = queue.shift() as string;
+    const nextDistance = (distances.get(current) ?? 0) + 1;
+    for (const next of adjacency.get(current) ?? []) {
+      if (distances.has(next)) continue;
+      distances.set(next, nextDistance);
+      queue.push(next);
+    }
+  }
+
+  return distances;
 }
 
 function handleGraphSelection() {
@@ -615,6 +660,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
               <span>返回边 {{ subgraph?.edges.length ?? 0 }}</span>
               <span>可见节点 {{ visibleNodes.length }}</span>
               <span>可见边 {{ visibleEdges.length }}</span>
+              <span v-if="maxVisibleHop !== null">max hop {{ maxVisibleHop }}</span>
             </div>
           </div>
 
@@ -710,6 +756,7 @@ function stripPropertyPrefix(value: unknown, key?: unknown) {
             <h4>{{ nodeDisplayName(selectedNode) }}</h4>
             <p class="muted-copy">{{ displayNodeId(selectedNode) }}</p>
             <dl class="metadata-list compact">
+              <div v-if="selectedNodeHop !== null"><dt>Hop</dt><dd>{{ selectedNodeHop }}</dd></div>
               <div><dt>层级</dt><dd>{{ selectedNode.level }}</dd></div>
               <div><dt>风险等级</dt><dd>{{ formatValue(selectedNode.properties?.risk_level) }}</dd></div>
               <div><dt>实体类型</dt><dd>{{ formatValue(selectedNode.properties?.entity_class ?? selectedNode.properties?.type) }}</dd></div>

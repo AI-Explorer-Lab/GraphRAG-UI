@@ -42,7 +42,7 @@ const maxSteps = ref(3);
 const loading = ref(false);
 const error = ref("");
 const response = ref<AskResponse | null>(null);
-const activeTab = ref<"sub" | "triples" | "ids" | "chunks" | "steps">("triples");
+const activeTab = ref<"sub" | "triples" | "paths" | "ids" | "chunks" | "steps">("triples");
 
 const graphOptions = computed(() => [...(props.graphIds ?? [])].sort());
 
@@ -65,6 +65,7 @@ const triples = computed(() => response.value?.retrieval?.triples ?? []);
 const chunkIds = computed(() => response.value?.retrieval?.chunk_ids ?? []);
 const chunkContents = computed(() => response.value?.retrieval?.chunk_contents ?? []);
 const reasoningSteps = computed(() => response.value?.retrieval?.reasoning_steps ?? []);
+const traversalPaths = computed(() => response.value?.retrieval?.paths ?? []);
 const nodeNameById = computed(() => {
   const names = new Map<string, string>();
   chunkContents.value.forEach((chunk) => {
@@ -258,6 +259,7 @@ async function runAsk() {
         <div class="evidence-tabs">
           <button type="button" :class="{ active: activeTab === 'sub' }" @click="activeTab = 'sub'">Sub Questions</button>
           <button type="button" :class="{ active: activeTab === 'triples' }" @click="activeTab = 'triples'">Triples</button>
+          <button type="button" :class="{ active: activeTab === 'paths' }" @click="activeTab = 'paths'">DFS Paths</button>
           <button type="button" :class="{ active: activeTab === 'ids' }" @click="activeTab = 'ids'">Chunk IDs</button>
           <button type="button" :class="{ active: activeTab === 'chunks' }" @click="activeTab = 'chunks'">Chunk Contents</button>
           <button type="button" :class="{ active: activeTab === 'steps' }" @click="activeTab = 'steps'">Reasoning Steps</button>
@@ -272,6 +274,10 @@ async function runAsk() {
         <ul v-else-if="activeTab === 'triples'" class="triple-list">
           <li v-for="triple in triples" :key="triple">{{ triple }}</li>
         </ul>
+        <div v-else-if="activeTab === 'paths'" class="chunk-stack">
+          <pre v-for="(path, index) in traversalPaths" :key="index">{{ JSON.stringify(path, null, 2) }}</pre>
+          <div v-if="!traversalPaths.length" class="empty-state">No DFS paths returned</div>
+        </div>
         <ul v-else-if="activeTab === 'ids'" class="code-list">
           <li v-for="id in chunkIds" :key="id">{{ id }}</li>
         </ul>

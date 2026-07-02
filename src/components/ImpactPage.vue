@@ -19,7 +19,10 @@ const impactExamples = [
     relation: "provides_to" as RelationType,
     maxDepth: 4,
     scope: "",
-    targetNodeId: "report_sar"
+    targetNodeId: "report_sar",
+    txtSource: "shared_phone_138001",
+    txtTarget: "shared_phone_138001",
+    txtTargetNodeId: "sar_report"
   },
   {
     id: "transaction-stream-delay",
@@ -30,7 +33,10 @@ const impactExamples = [
     relation: "provides_to" as RelationType,
     maxDepth: 4,
     scope: "",
-    targetNodeId: "report_sar"
+    targetNodeId: "report_sar",
+    txtSource: "real_time_transaction_stream",
+    txtTarget: "real_time_transaction_stream",
+    txtTargetNodeId: "sar_report"
   },
   {
     id: "mule-feature-offline",
@@ -41,7 +47,10 @@ const impactExamples = [
     relation: "provides_to" as RelationType,
     maxDepth: 4,
     scope: "",
-    targetNodeId: "report_sar"
+    targetNodeId: "report_sar",
+    txtSource: "mule_cluster_feature",
+    txtTarget: "mule_cluster_feature",
+    txtTargetNodeId: "sar_report"
   }
 ];
 
@@ -146,21 +155,44 @@ watch(
   () => props.graphId,
   (value) => {
     localGraphId.value = value;
+    applyImpactExample(selectedImpactExample.value);
   }
 );
 
 function applyImpactExample(exampleId: string) {
   const example = impactExamples.find((item) => item.id === exampleId);
   if (!example) return;
+  const resolved = resolveImpactExample(example);
   selectedImpactExample.value = example.id;
   scenarioQuestion.value = example.question;
-  source.value = example.source;
-  target.value = example.target;
+  source.value = resolved.source;
+  target.value = resolved.target;
   relation.value = example.relation;
   maxDepth.value = example.maxDepth;
   scope.value = example.scope;
-  targetNodeId.value = example.targetNodeId;
+  targetNodeId.value = resolved.targetNodeId;
 }
+
+function resolveImpactExample(example: (typeof impactExamples)[number]) {
+  if (!isTextGraph(localGraphId.value)) {
+    return {
+      source: example.source,
+      target: example.target,
+      targetNodeId: example.targetNodeId
+    };
+  }
+  return {
+    source: example.txtSource || example.source,
+    target: example.txtTarget || example.target,
+    targetNodeId: example.txtTargetNodeId || example.targetNodeId
+  };
+}
+
+function isTextGraph(graphId: string) {
+  return graphId.toLowerCase().includes("_txt");
+}
+
+applyImpactExample(selectedImpactExample.value);
 
 function isSystemNode(nodeId: string) {
   return nodeId.startsWith("attr::") || nodeId.startsWith("comm_") || nodeId.startsWith("kw_");

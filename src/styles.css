@@ -1300,15 +1300,16 @@ pre {
 
 .ring-layer ellipse {
   fill: transparent;
-  stroke: oklch(0.52 0.018 82 / 0.25);
+  stroke: oklch(0.70 0.026 82 / 0.48);
   stroke-dasharray: 6 10;
   stroke-width: 1;
 }
 
 .ring-layer text {
-  fill: oklch(0.62 0.018 82 / 0.65);
+  fill: oklch(0.78 0.032 82 / 0.92);
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 13px;
+  font-weight: 650;
   letter-spacing: 0.02em;
 }
 

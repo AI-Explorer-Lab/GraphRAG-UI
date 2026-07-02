@@ -45,8 +45,8 @@ const EDGE_COLORS: Record<string, string> = {
 };
 const HOP_RINGS: Record<number, { rx: number; ry: number; label: string; labelX: number; labelY: number }> = {
   1: { rx: 210, ry: 136, label: "1-hop", labelX: CENTER.x + 156, labelY: CENTER.y - 118 },
-  2: { rx: 390, ry: 252, label: "2-hop", labelX: CENTER.x + 330, labelY: CENTER.y - 232 },
-  3: { rx: 548, ry: 334, label: "3-hop", labelX: CENTER.x + 486, labelY: CENTER.y - 310 }
+  2: { rx: 390, ry: 252, label: "2-hop", labelX: CENTER.x + 285, labelY: CENTER.y - 198 },
+  3: { rx: 610, ry: 366, label: "3-hop", labelX: CENTER.x + 430, labelY: CENTER.y - 278 }
 };
 
 const props = defineProps<{
@@ -144,10 +144,11 @@ const depthByNode = computed(() =>
 const maxVisibleDepth = computed(() =>
   hasActiveCenter.value ? Math.max(0, ...visibleNodes.value.map((node) => Math.min(depthByNode.value.get(node.id) ?? 3, 3))) : 0
 );
+const shouldDimSelectedNeighborhood = computed(() => Boolean(props.selectedId && props.selectedId !== props.centerId));
 
 const neighborIds = computed(() => {
   const ids = new Set<string>();
-  if (props.selectedId) {
+  if (shouldDimSelectedNeighborhood.value && props.selectedId) {
     ids.add(props.selectedId);
     visibleEdges.value.forEach((edge) => {
       if (edge.source === props.selectedId) ids.add(edge.target);
@@ -520,7 +521,7 @@ function isNodeDimmed(node: SubgraphNode) {
 
 function isEdgeDimmed(edge: SubgraphEdge) {
   if (props.selectedEdge) return !isSelectedEdge(edge);
-  if (!props.selectedId) return false;
+  if (!shouldDimSelectedNeighborhood.value || !props.selectedId) return false;
   return edge.source !== props.selectedId && edge.target !== props.selectedId;
 }
 
