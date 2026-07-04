@@ -7,7 +7,7 @@ Vue + Vite frontend for the GraphRAG demo. It talks to the backend API through t
 Start FalkorDB and the backend API first from the backend project:
 
 ```powershell
-cd F:\lineage-graphrag
+cd F:\graphrag
 docker compose -f deploy/docker-compose.falkordb.yml up -d
 python main.py --reload
 ```
@@ -23,7 +23,7 @@ http://localhost:8001
 Open a second terminal:
 
 ```powershell
-cd F:\lineage-graphrag-ui
+cd F:\graphrag-ui
 npm install
 npm run dev
 ```

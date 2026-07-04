@@ -9,7 +9,7 @@
         "owner": "risk_arch",
         "risk_level": "medium"
       },
-      "description": "一个小型支付风控 lineage 示例，用于演示主体、资金流、风险信号、模型规则和处置动作之间的可追溯关系。",
+      "description": "一个小型支付风控 GraphRAG 示例，用于演示主体、资金流、风险信号、模型规则和处置动作之间的可追溯关系。",
       "children": [
         "dom_subjects",
         "dom_flow",
