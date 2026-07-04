@@ -255,7 +255,7 @@ async function copyExtractedJson() {
           v-model="scenarioText"
           class="scenario-editor"
           spellcheck="false"
-          placeholder="粘贴业务描述、系统说明、数据血缘文档或调研记录"
+          placeholder="粘贴业务描述、系统说明、业务资料或调研记录"
 
         />
         <details class="schema-hint" open>

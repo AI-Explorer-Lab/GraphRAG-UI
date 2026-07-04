@@ -145,6 +145,20 @@ const impactGraphEdges = computed(() => {
   });
   return [...edges.values()];
 });
+const impactGraphCenterId = computed(() => {
+  const nodeIds = new Set(impactGraphNodes.value.map((node) => node.id));
+  const requestedCandidates = [source.value.trim(), target.value.trim()].filter(Boolean);
+  for (const candidate of requestedCandidates) {
+    if (nodeIds.has(candidate)) return candidate;
+  }
+
+  for (const path of visibleEvidencePaths.value) {
+    const firstNode = path.path[0];
+    if (firstNode && nodeIds.has(firstNode)) return firstNode;
+  }
+
+  return "";
+});
 const selectedImpactSummary = computed(() => {
   if (selectedGraphNode.value) return `${selectedGraphNode.value.id} / ${selectedGraphNode.value.properties?.type ?? "node"}`;
   if (selectedGraphEdge.value) return `${selectedGraphEdge.value.source} -> ${selectedGraphEdge.value.target} / ${selectedGraphEdge.value.relation}`;
@@ -382,7 +396,7 @@ async function run() {
           :edges="impactGraphEdges"
           :hidden-relations="[]"
           :hidden-labels="[]"
-          :center-id="target.trim()"
+          :center-id="impactGraphCenterId"
           :selected-id="selectedGraphNode?.id"
           :selected-edge="selectedGraphEdge"
           compact
